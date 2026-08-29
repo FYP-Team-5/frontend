@@ -77,3 +77,38 @@ export async function archiveRubric(rubricId: string): Promise<void> {
   );
   if (!res.ok) throw new RagApiError(await parseError(res));
 }
+
+export async function getRubric(rubricId: string): Promise<Rubric> {
+  const res = await fetch(
+    `${RAG_API_URL}/api/v1/rubrics/${encodeURIComponent(rubricId)}`,
+    { headers: headers() },
+  );
+  if (!res.ok) throw new RagApiError(await parseError(res));
+  return res.json();
+}
+
+// Rubric ingestion (chunking + embedding) runs as a background task in the
+// rag service, so a freshly uploaded rubric is not immediately attachable —
+// the exam-rubric attach endpoint rejects anything not yet `processed`. Poll
+// until it's done (or failed) instead of attaching right away.
+export async function waitForRubricProcessing(
+  rubricId: string,
+  { intervalMs = 1500, timeoutMs = 60_000 }: { intervalMs?: number; timeoutMs?: number } = {},
+): Promise<Rubric> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const rubric = await getRubric(rubricId);
+    if (rubric.processing_status === "completed") return rubric;
+    if (rubric.processing_status === "failed") {
+      throw new RagApiError(
+        rubric.processing_error || "Rubric processing failed.",
+      );
+    }
+    if (Date.now() > deadline) {
+      throw new RagApiError(
+        "Rubric is still processing after 60s — try attaching it again shortly.",
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}

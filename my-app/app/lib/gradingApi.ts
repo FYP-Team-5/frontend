@@ -1,4 +1,7 @@
-const GRADING_API_URL = process.env.NEXT_PUBLIC_GRADING_API_URL;
+// The grading/catalog routes now live on the same `backend` service as auth
+// (grading + user microservices were collapsed into it), just gated by a
+// separate X-API-Key instead of the JWT bearer token used by /auth and /users.
+const GRADING_API_URL = process.env.NEXT_PUBLIC_API_URL;
 const GRADING_API_KEY = process.env.NEXT_PUBLIC_GRADING_API_KEY;
 
 export class GradingApiError extends Error {}
@@ -31,6 +34,7 @@ export interface Question {
   id: string;
   prompt: string;
   max_score: number;
+  criteria: string[];
   rubric_chunk_indexes: number[];
   position: number;
 }
@@ -54,10 +58,7 @@ export async function listCourses(): Promise<Course[]> {
   return res.json();
 }
 
-export async function createCourse(params: {
-  id: string;
-  title: string;
-}): Promise<Course> {
+export async function createCourse(params: { title: string }): Promise<Course> {
   const res = await fetch(`${GRADING_API_URL}/api/v1/courses`, {
     method: "POST",
     headers: headers(),
@@ -82,7 +83,12 @@ export async function createExam(
     title: string;
     type: "exam" | "quiz";
     max_attempts: number;
-    questions: Array<{ id: string; prompt: string; max_score: number }>;
+    questions: Array<{
+      id: string;
+      prompt: string;
+      max_score: number;
+      criteria?: string[];
+    }>;
   },
 ): Promise<Exam> {
   const res = await fetch(

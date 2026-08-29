@@ -54,16 +54,14 @@ export default function Home() {
         <p className="mt-2 text-foreground/70">
           {user.role === "staff"
             ? "Head to your instructor dashboard to manage courses, rubrics, and exams."
-            : "Your courses and exam attempts will appear here."}
+            : "Browse available courses and their exams."}
         </p>
-        {user.role === "staff" && (
-          <Link
-            href="/instructor"
-            className="mt-6 inline-block rounded bg-brand-light px-4 py-2 text-sm font-medium text-white hover:opacity-90"
-          >
-            Go to instructor dashboard
-          </Link>
-        )}
+        <Link
+          href={user.role === "staff" ? "/instructor" : "/student"}
+          className="mt-6 inline-block rounded bg-brand-light px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+        >
+          {user.role === "staff" ? "Go to instructor dashboard" : "Browse courses"}
+        </Link>
       </div>
     </div>
   );
