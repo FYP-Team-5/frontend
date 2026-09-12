@@ -79,7 +79,7 @@ export interface Attempt {
   test_id: string;
   user_id: string;
   attempt_number: number;
-  status: "in_progress" | "graded" | "failed";
+  status: "in_progress" | "grading" | "graded" | "failed";
   started_at: string;
   graded_at: string | null;
   error: string | null;
@@ -216,15 +216,17 @@ export async function listAttempts(
   return res.json();
 }
 
-// Submits (and by default finalizes) answers for an attempt. Can also be
-// called with finalize: false to grade a batch of answers without closing
-// out the attempt, but the UI here always submits everything at once.
+// Saves the submitted answers and starts grading them in the background —
+// returns as soon as responses are stored (attempt.status becomes
+// "grading"), before any LLM grading has actually happened. Poll
+// getAttemptResult (see waitForAttemptGrading) for the outcome instead of
+// expecting a result here, since each answer costs its own LLM round-trip.
 export async function gradeAttempt(
   testId: string,
   attemptId: string,
   userId: string,
   params: { responses: Array<{ question_id: string; answer: string }>; finalize?: boolean },
-): Promise<AttemptGradeResult> {
+): Promise<Attempt> {
   const res = await fetch(
     `${GRADING_API_URL}/api/v1/tests/${encodeURIComponent(testId)}/attempts/${encodeURIComponent(attemptId)}/grade`,
     {
@@ -251,4 +253,28 @@ export async function getAttemptResult(
   );
   if (!res.ok) throw new GradingApiError(await parseError(res));
   return res.json();
+}
+
+// Polls getAttemptResult until the background grading task finishes
+// (status "graded" or "failed"), same pattern as ragApi's
+// waitForRubricProcessing.
+export async function waitForAttemptGrading(
+  testId: string,
+  attemptId: string,
+  userId: string,
+  { intervalMs = 1500, timeoutMs = 120_000 }: { intervalMs?: number; timeoutMs?: number } = {},
+): Promise<AttemptGradeResult> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const result = await getAttemptResult(testId, attemptId, userId);
+    if (result.attempt.status === "graded" || result.attempt.status === "failed") {
+      return result;
+    }
+    if (Date.now() > deadline) {
+      throw new GradingApiError(
+        "Grading is taking longer than expected — check back shortly.",
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
 }

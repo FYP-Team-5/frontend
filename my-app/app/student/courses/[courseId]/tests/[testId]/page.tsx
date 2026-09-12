@@ -10,6 +10,7 @@ import {
   createAttempt,
   gradeAttempt,
   getTest,
+  waitForAttemptGrading,
 } from "../../../../../lib/gradingApi";
 import { getUser } from "../../../../../lib/session";
 
@@ -31,7 +32,7 @@ export default function TakeTestPage({
 
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [submitPhase, setSubmitPhase] = useState<"idle" | "submitting" | "grading">("idle");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -65,20 +66,30 @@ export default function TakeTestPage({
     e.preventDefault();
     if (!user || !attempt || !test) return;
     setError(null);
-    setSubmitting(true);
+    setSubmitPhase("submitting");
     try {
-      const graded = await gradeAttempt(testId, attempt.id, user.id, {
+      const submitted = await gradeAttempt(testId, attempt.id, user.id, {
         responses: test.questions.map((q) => ({
           question_id: q.id,
           answer: answers[q.id] ?? "",
         })),
         finalize: true,
       });
-      setResult(graded);
+      setAttempt(submitted);
+      setSubmitPhase("grading");
+      const graded = await waitForAttemptGrading(testId, attempt.id, user.id);
+      setAttempt(graded.attempt);
+      if (graded.attempt.status === "failed") {
+        // Leave the form up (with answers intact) so the student can just
+        // resubmit — the backend allows re-grading a failed attempt.
+        setError(graded.attempt.error || "Grading failed — try submitting again.");
+      } else {
+        setResult(graded);
+      }
     } catch (err) {
       setError(err instanceof GradingApiError ? err.message : "Failed to submit attempt.");
     } finally {
-      setSubmitting(false);
+      setSubmitPhase("idle");
     }
   }
 
@@ -167,10 +178,14 @@ export default function TakeTestPage({
 
           <button
             type="submit"
-            disabled={submitting}
+            disabled={submitPhase !== "idle"}
             className="self-start rounded bg-brand-light px-5 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
           >
-            {submitting ? "Submitting..." : "Submit"}
+            {submitPhase === "submitting"
+              ? "Submitting..."
+              : submitPhase === "grading"
+                ? "Grading..."
+                : "Submit"}
           </button>
         </form>
       )}
