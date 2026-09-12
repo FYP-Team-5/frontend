@@ -19,7 +19,7 @@ export default function LoginPage() {
     try {
       const result = await login(email, password);
       setSession(result.access_token, result.user);
-      router.push(result.user.role === "staff" ? "/instructor" : "/");
+      router.push(result.user.role === "instructor" ? "/instructor" : "/");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Login failed.");
     } finally {

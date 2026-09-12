@@ -13,7 +13,8 @@ export default function InstructorDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [title, setTitle] = useState("");
+  const [courseCode, setCourseCode] = useState("");
+  const [courseName, setCourseName] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   async function refresh() {
@@ -37,8 +38,9 @@ export default function InstructorDashboard() {
     setSubmitting(true);
     setError(null);
     try {
-      await createCourse({ title });
-      setTitle("");
+      await createCourse({ course_code: courseCode, course_name: courseName });
+      setCourseCode("");
+      setCourseName("");
       await refresh();
     } catch (err) {
       setError(err instanceof GradingApiError ? err.message : "Failed to create course.");
@@ -63,9 +65,9 @@ export default function InstructorDashboard() {
           >
             <div className="h-16 border-b border-gray-300 bg-white" />
             <div className="p-4">
-              <p className="font-semibold text-foreground">{course.title}</p>
+              <p className="font-semibold text-foreground">{course.course_name}</p>
               <p className="mt-1 text-xs uppercase tracking-wide text-foreground/50">
-                Course #{course.id}
+                {course.course_code}
               </p>
             </div>
           </Link>
@@ -77,10 +79,23 @@ export default function InstructorDashboard() {
         <form onSubmit={handleCreate} className="mt-4 flex flex-col gap-4">
           <div>
             <label className={labelClass}>
-              Title
+              Course code
               <input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
+                value={courseCode}
+                onChange={(e) => setCourseCode(e.target.value)}
+                placeholder="e.g. CS101"
+                required
+                className={inputClass}
+              />
+            </label>
+          </div>
+          <div>
+            <label className={labelClass}>
+              Course name
+              <input
+                value={courseName}
+                onChange={(e) => setCourseName(e.target.value)}
+                placeholder="e.g. Introduction to Computer Science"
                 required
                 className={inputClass}
               />

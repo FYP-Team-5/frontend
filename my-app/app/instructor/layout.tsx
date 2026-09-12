@@ -14,7 +14,7 @@ export default function InstructorLayout({
 
   useEffect(() => {
     const user = getUser();
-    if (!user || user.role !== "staff") {
+    if (!user || user.role !== "instructor") {
       router.replace("/login");
       return;
     }

@@ -52,15 +52,15 @@ export default function Home() {
           Welcome back, {user.full_name}
         </h1>
         <p className="mt-2 text-foreground/70">
-          {user.role === "staff"
+          {user.role === "instructor"
             ? "Head to your instructor dashboard to manage courses, rubrics, and exams."
             : "Browse available courses and their exams."}
         </p>
         <Link
-          href={user.role === "staff" ? "/instructor" : "/student"}
+          href={user.role === "instructor" ? "/instructor" : "/student"}
           className="mt-6 inline-block rounded bg-brand-light px-4 py-2 text-sm font-medium text-white hover:opacity-90"
         >
-          {user.role === "staff" ? "Go to instructor dashboard" : "Browse courses"}
+          {user.role === "instructor" ? "Go to instructor dashboard" : "Browse courses"}
         </Link>
       </div>
     </div>

@@ -133,12 +133,11 @@ export default function RegisterPage() {
           {role === "staff" && (
             <div>
               <label className={labelClass}>
-                Staff registration key
+                Staff registration key (optional)
                 <input
                   type="password"
                   value={registrationKey}
                   onChange={(e) => setRegistrationKey(e.target.value)}
-                  required
                   className={inputClass}
                 />
               </label>

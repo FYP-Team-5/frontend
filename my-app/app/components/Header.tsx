@@ -38,7 +38,7 @@ export default function Header() {
         <nav className="flex items-center gap-4 text-sm">
           {user === undefined ? null : user ? (
             <>
-              {user.role === "staff" ? (
+              {user.role === "instructor" ? (
                 <Link
                   href="/instructor"
                   className="rounded px-3 py-1.5 text-foreground/80 hover:bg-black/5"

@@ -34,9 +34,9 @@ export default function StudentDashboard() {
           >
             <div className="h-16 border-b border-gray-300 bg-white" />
             <div className="p-4">
-              <p className="font-semibold text-foreground">{course.title}</p>
+              <p className="font-semibold text-foreground">{course.course_name}</p>
               <p className="mt-1 text-xs uppercase tracking-wide text-foreground/50">
-                Course #{course.id}
+                {course.course_code}
               </p>
             </div>
           </Link>

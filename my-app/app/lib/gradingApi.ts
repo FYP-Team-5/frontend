@@ -1,14 +1,24 @@
 // The grading/catalog routes now live on the same `backend` service as auth
 // (grading + user microservices were collapsed into it), just gated by a
 // separate X-API-Key instead of the JWT bearer token used by /auth and /users.
+// Attempt endpoints additionally require an X-User-ID header identifying the
+// student taking the test (see require_user_id in the backend).
 const GRADING_API_URL = process.env.NEXT_PUBLIC_API_URL;
 const GRADING_API_KEY = process.env.NEXT_PUBLIC_GRADING_API_KEY;
 
 export class GradingApiError extends Error {}
 
-function headers(extra?: Record<string, string>): HeadersInit {
+function jsonHeaders(extra?: Record<string, string>): HeadersInit {
   return {
     "Content-Type": "application/json",
+    ...(GRADING_API_KEY ? { "X-API-Key": GRADING_API_KEY } : {}),
+    ...extra,
+  };
+}
+
+// No Content-Type here — the browser must set the multipart boundary itself.
+function formHeaders(extra?: Record<string, string>): HeadersInit {
+  return {
     ...(GRADING_API_KEY ? { "X-API-Key": GRADING_API_KEY } : {}),
     ...extra,
   };
@@ -26,94 +36,218 @@ async function parseError(res: Response): Promise<string> {
 
 export interface Course {
   id: string;
-  title: string;
+  course_code: string;
+  course_name: string;
   created_at: string;
+}
+
+export interface Criterion {
+  id: string;
+  rubric_id: string;
+  description: string;
+  score: number;
+}
+
+export interface Rubric {
+  id: string;
+  criteria: Criterion[];
 }
 
 export interface Question {
   id: string;
+  test_id: string;
+  external_id: string | null;
   prompt: string;
   max_score: number;
-  criteria: string[];
-  rubric_chunk_indexes: number[];
+  score_increment: number;
+  model_answer: string | null;
+  rubric: Rubric | null;
   position: number;
 }
 
-export interface Exam {
+export interface Test {
   id: string;
   course_id: string;
-  title: string;
-  type: "exam" | "quiz";
+  test_name: string;
   max_attempts: number;
-  rubric_id: string | null;
   questions: Question[];
   created_at: string;
 }
 
+export interface Attempt {
+  id: string;
+  test_id: string;
+  user_id: string;
+  attempt_number: number;
+  status: "in_progress" | "graded" | "failed";
+  started_at: string;
+  graded_at: string | null;
+  error: string | null;
+}
+
+export interface CriteriaMet {
+  id: string;
+  criteria_id: string;
+  is_met: boolean;
+}
+
+export interface QuestionResponse {
+  id: string;
+  attempt_id: string;
+  question_id: string;
+  answer: string;
+  score: number;
+  feedback: string | null;
+  criteria_met: CriteriaMet[];
+}
+
+export interface AttemptGradeResult {
+  attempt: Attempt;
+  responses: QuestionResponse[];
+  total_score: number;
+  max_score: number;
+  percentage: number;
+  completed_questions: number;
+  total_questions: number;
+}
+
 export async function listCourses(): Promise<Course[]> {
   const res = await fetch(`${GRADING_API_URL}/api/v1/courses`, {
-    headers: headers(),
+    headers: jsonHeaders(),
   });
   if (!res.ok) throw new GradingApiError(await parseError(res));
   return res.json();
 }
 
-export async function createCourse(params: { title: string }): Promise<Course> {
+export async function createCourse(params: {
+  course_code: string;
+  course_name: string;
+}): Promise<Course> {
   const res = await fetch(`${GRADING_API_URL}/api/v1/courses`, {
     method: "POST",
-    headers: headers(),
+    headers: jsonHeaders(),
     body: JSON.stringify(params),
   });
   if (!res.ok) throw new GradingApiError(await parseError(res));
   return res.json();
 }
 
-export async function listExams(courseId: string): Promise<Exam[]> {
+export async function listTests(courseId: string): Promise<Test[]> {
   const res = await fetch(
-    `${GRADING_API_URL}/api/v1/courses/${encodeURIComponent(courseId)}/exams`,
-    { headers: headers() },
+    `${GRADING_API_URL}/api/v1/courses/${encodeURIComponent(courseId)}/tests`,
+    { headers: jsonHeaders() },
   );
   if (!res.ok) throw new GradingApiError(await parseError(res));
   return res.json();
 }
 
-export async function createExam(
-  courseId: string,
-  params: {
-    title: string;
-    type: "exam" | "quiz";
-    max_attempts: number;
-    questions: Array<{
-      id: string;
-      prompt: string;
-      max_score: number;
-      criteria?: string[];
-    }>;
-  },
-): Promise<Exam> {
+export async function getTest(testId: string): Promise<Test> {
   const res = await fetch(
-    `${GRADING_API_URL}/api/v1/courses/${encodeURIComponent(courseId)}/exams`,
+    `${GRADING_API_URL}/api/v1/tests/${encodeURIComponent(testId)}`,
+    { headers: jsonHeaders() },
+  );
+  if (!res.ok) throw new GradingApiError(await parseError(res));
+  return res.json();
+}
+
+// Bulk-creates a test and its questions from an instructor-authored CSV
+// (columns: id, prompt, max_score, score_increment, optional model_answer).
+// The `id` column becomes each question's external_id, used later to join
+// against the criteria CSV.
+export async function createTestFromCsv(
+  courseId: string,
+  params: { file: File; testName: string; maxAttempts: number },
+): Promise<Test> {
+  const form = new FormData();
+  form.set("file", params.file);
+  form.set("test_name", params.testName);
+  form.set("max_attempts", String(params.maxAttempts));
+
+  const res = await fetch(
+    `${GRADING_API_URL}/api/v1/courses/${encodeURIComponent(courseId)}/tests/csv`,
+    { method: "POST", headers: formHeaders(), body: form },
+  );
+  if (!res.ok) throw new GradingApiError(await parseError(res));
+  return res.json();
+}
+
+// Bulk-attaches rubric criteria (and optional model answers) from a CSV
+// (columns: id, criteria, criteria_max_score, optional model_answer). Each
+// row's `id` must match a question's external_id from the questions CSV.
+export async function uploadCriteriaCsv(
+  testId: string,
+  file: File,
+): Promise<Test> {
+  const form = new FormData();
+  form.set("file", file);
+
+  const res = await fetch(
+    `${GRADING_API_URL}/api/v1/tests/${encodeURIComponent(testId)}/criteria/csv`,
+    { method: "POST", headers: formHeaders(), body: form },
+  );
+  if (!res.ok) throw new GradingApiError(await parseError(res));
+  return res.json();
+}
+
+export async function createAttempt(
+  testId: string,
+  userId: string,
+): Promise<Attempt> {
+  const res = await fetch(
+    `${GRADING_API_URL}/api/v1/tests/${encodeURIComponent(testId)}/attempts`,
     {
       method: "POST",
-      headers: headers(),
-      body: JSON.stringify(params),
+      headers: jsonHeaders({ "X-User-ID": userId }),
     },
   );
   if (!res.ok) throw new GradingApiError(await parseError(res));
   return res.json();
 }
 
-export async function attachRubric(
-  examId: string,
-  rubricId: string,
-): Promise<Exam> {
+export async function listAttempts(
+  testId: string,
+  userId: string,
+): Promise<Attempt[]> {
   const res = await fetch(
-    `${GRADING_API_URL}/api/v1/exams/${encodeURIComponent(examId)}/rubric`,
+    `${GRADING_API_URL}/api/v1/tests/${encodeURIComponent(testId)}/attempts`,
+    { headers: jsonHeaders({ "X-User-ID": userId }) },
+  );
+  if (!res.ok) throw new GradingApiError(await parseError(res));
+  return res.json();
+}
+
+// Submits (and by default finalizes) answers for an attempt. Can also be
+// called with finalize: false to grade a batch of answers without closing
+// out the attempt, but the UI here always submits everything at once.
+export async function gradeAttempt(
+  testId: string,
+  attemptId: string,
+  userId: string,
+  params: { responses: Array<{ question_id: string; answer: string }>; finalize?: boolean },
+): Promise<AttemptGradeResult> {
+  const res = await fetch(
+    `${GRADING_API_URL}/api/v1/tests/${encodeURIComponent(testId)}/attempts/${encodeURIComponent(attemptId)}/grade`,
     {
-      method: "PUT",
-      headers: headers(),
-      body: JSON.stringify({ rubric_id: rubricId }),
+      method: "POST",
+      headers: jsonHeaders({ "X-User-ID": userId }),
+      body: JSON.stringify({
+        responses: params.responses,
+        finalize: params.finalize ?? true,
+      }),
     },
+  );
+  if (!res.ok) throw new GradingApiError(await parseError(res));
+  return res.json();
+}
+
+export async function getAttemptResult(
+  testId: string,
+  attemptId: string,
+  userId: string,
+): Promise<AttemptGradeResult> {
+  const res = await fetch(
+    `${GRADING_API_URL}/api/v1/tests/${encodeURIComponent(testId)}/attempts/${encodeURIComponent(attemptId)}`,
+    { headers: jsonHeaders({ "X-User-ID": userId }) },
   );
   if (!res.ok) throw new GradingApiError(await parseError(res));
   return res.json();

@@ -2,7 +2,7 @@ export interface SessionUser {
   id: string;
   email: string;
   full_name: string;
-  role: "student" | "staff";
+  role: "student" | "instructor";
 }
 
 const TOKEN_KEY = "auth_token";
