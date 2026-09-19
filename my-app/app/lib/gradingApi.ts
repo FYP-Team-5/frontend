@@ -53,6 +53,16 @@ export interface Rubric {
   criteria: Criterion[];
 }
 
+export interface Example {
+  id: string;
+  question_id: string;
+  band: "excellent" | "average" | "poor";
+  example_answer: string;
+  score: number;
+}
+
+export type GradingMethod = "rubric" | "fewshot";
+
 export interface Question {
   id: string;
   test_id: string;
@@ -62,6 +72,8 @@ export interface Question {
   score_increment: number;
   model_answer: string | null;
   rubric: Rubric | null;
+  examples: Example[];
+  grading_method: GradingMethod | null;
   position: number;
 }
 
@@ -184,6 +196,46 @@ export async function uploadCriteriaCsv(
   const res = await fetch(
     `${GRADING_API_URL}/api/v1/tests/${encodeURIComponent(testId)}/criteria/csv`,
     { method: "POST", headers: formHeaders(), body: form },
+  );
+  if (!res.ok) throw new GradingApiError(await parseError(res));
+  return res.json();
+}
+
+// Bulk-attaches few-shot exemplars from a CSV (columns: id, good_answer,
+// good_score, average_answer, average_score, bad_answer, bad_score). Each
+// row's `id` must match a question's external_id from the questions CSV.
+// Optional — a question only needs a rubric OR examples to be gradable.
+export async function uploadExamplesCsv(
+  testId: string,
+  file: File,
+): Promise<Test> {
+  const form = new FormData();
+  form.set("file", file);
+
+  const res = await fetch(
+    `${GRADING_API_URL}/api/v1/tests/${encodeURIComponent(testId)}/examples/csv`,
+    { method: "POST", headers: formHeaders(), body: form },
+  );
+  if (!res.ok) throw new GradingApiError(await parseError(res));
+  return res.json();
+}
+
+// Explicitly picks which method grades a question. Only required once a
+// question has both a rubric and examples attached (otherwise whichever
+// one exists is used automatically) — students can't start an attempt
+// until this is resolved for every such question.
+export async function setGradingMethod(
+  testId: string,
+  questionId: string,
+  method: GradingMethod,
+): Promise<Question> {
+  const res = await fetch(
+    `${GRADING_API_URL}/api/v1/tests/${encodeURIComponent(testId)}/questions/${encodeURIComponent(questionId)}/grading-method`,
+    {
+      method: "PUT",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ method }),
+    },
   );
   if (!res.ok) throw new GradingApiError(await parseError(res));
   return res.json();
