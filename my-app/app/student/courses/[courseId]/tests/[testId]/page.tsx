@@ -51,7 +51,7 @@ export default function TakeTestPage({
     setError(null);
     setStarting(true);
     try {
-      const newAttempt = await createAttempt(testId, user.id);
+      const newAttempt = await createAttempt(testId);
       setAttempt(newAttempt);
     } catch (err) {
       setError(
@@ -68,7 +68,7 @@ export default function TakeTestPage({
     setError(null);
     setSubmitPhase("submitting");
     try {
-      const submitted = await gradeAttempt(testId, attempt.id, user.id, {
+      const submitted = await gradeAttempt(testId, attempt.id, {
         responses: test.questions.map((q) => ({
           question_id: q.id,
           answer: answers[q.id] ?? "",
@@ -77,7 +77,7 @@ export default function TakeTestPage({
       });
       setAttempt(submitted);
       setSubmitPhase("grading");
-      const graded = await waitForAttemptGrading(testId, attempt.id, user.id);
+      const graded = await waitForAttemptGrading(testId, attempt.id);
       setAttempt(graded.attempt);
       if (graded.attempt.status === "failed") {
         // Leave the form up (with answers intact) so the student can just

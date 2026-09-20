@@ -1,8 +1,10 @@
 // The grading/catalog routes now live on the same `backend` service as auth
 // (grading + user microservices were collapsed into it), just gated by a
 // separate X-API-Key instead of the JWT bearer token used by /auth and /users.
-// Attempt endpoints additionally require an X-User-ID header identifying the
-// student taking the test (see require_user_id in the backend).
+// Attempt endpoints additionally require that bearer token — the backend
+// derives whose attempt it is from the token, not from a caller-supplied id.
+import { getToken } from "./session";
+
 const GRADING_API_URL = process.env.NEXT_PUBLIC_API_URL;
 const GRADING_API_KEY = process.env.NEXT_PUBLIC_GRADING_API_KEY;
 
@@ -22,6 +24,17 @@ function formHeaders(extra?: Record<string, string>): HeadersInit {
     ...(GRADING_API_KEY ? { "X-API-Key": GRADING_API_KEY } : {}),
     ...extra,
   };
+}
+
+// Attempt routes require the student's own bearer token in addition to the
+// service-level API key, so the backend can derive the attempt's owner from
+// the token instead of trusting a caller-supplied id.
+function attemptHeaders(extra?: Record<string, string>): HeadersInit {
+  const token = getToken();
+  return jsonHeaders({
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...extra,
+  });
 }
 
 async function parseError(res: Response): Promise<string> {
@@ -241,28 +254,22 @@ export async function setGradingMethod(
   return res.json();
 }
 
-export async function createAttempt(
-  testId: string,
-  userId: string,
-): Promise<Attempt> {
+export async function createAttempt(testId: string): Promise<Attempt> {
   const res = await fetch(
     `${GRADING_API_URL}/api/v1/tests/${encodeURIComponent(testId)}/attempts`,
     {
       method: "POST",
-      headers: jsonHeaders({ "X-User-ID": userId }),
+      headers: attemptHeaders(),
     },
   );
   if (!res.ok) throw new GradingApiError(await parseError(res));
   return res.json();
 }
 
-export async function listAttempts(
-  testId: string,
-  userId: string,
-): Promise<Attempt[]> {
+export async function listAttempts(testId: string): Promise<Attempt[]> {
   const res = await fetch(
     `${GRADING_API_URL}/api/v1/tests/${encodeURIComponent(testId)}/attempts`,
-    { headers: jsonHeaders({ "X-User-ID": userId }) },
+    { headers: attemptHeaders() },
   );
   if (!res.ok) throw new GradingApiError(await parseError(res));
   return res.json();
@@ -276,14 +283,13 @@ export async function listAttempts(
 export async function gradeAttempt(
   testId: string,
   attemptId: string,
-  userId: string,
   params: { responses: Array<{ question_id: string; answer: string }>; finalize?: boolean },
 ): Promise<Attempt> {
   const res = await fetch(
     `${GRADING_API_URL}/api/v1/tests/${encodeURIComponent(testId)}/attempts/${encodeURIComponent(attemptId)}/grade`,
     {
       method: "POST",
-      headers: jsonHeaders({ "X-User-ID": userId }),
+      headers: attemptHeaders(),
       body: JSON.stringify({
         responses: params.responses,
         finalize: params.finalize ?? true,
@@ -297,11 +303,10 @@ export async function gradeAttempt(
 export async function getAttemptResult(
   testId: string,
   attemptId: string,
-  userId: string,
 ): Promise<AttemptGradeResult> {
   const res = await fetch(
     `${GRADING_API_URL}/api/v1/tests/${encodeURIComponent(testId)}/attempts/${encodeURIComponent(attemptId)}`,
-    { headers: jsonHeaders({ "X-User-ID": userId }) },
+    { headers: attemptHeaders() },
   );
   if (!res.ok) throw new GradingApiError(await parseError(res));
   return res.json();
@@ -313,12 +318,11 @@ export async function getAttemptResult(
 export async function waitForAttemptGrading(
   testId: string,
   attemptId: string,
-  userId: string,
   { intervalMs = 1500, timeoutMs = 120_000 }: { intervalMs?: number; timeoutMs?: number } = {},
 ): Promise<AttemptGradeResult> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    const result = await getAttemptResult(testId, attemptId, userId);
+    const result = await getAttemptResult(testId, attemptId);
     if (result.attempt.status === "graded" || result.attempt.status === "failed") {
       return result;
     }
