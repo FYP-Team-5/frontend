@@ -1,18 +1,21 @@
-// The grading/catalog routes now live on the same `backend` service as auth
-// (grading + user microservices were collapsed into it), just gated by a
-// separate X-API-Key instead of the JWT bearer token used by /auth and /users.
-// Attempt endpoints additionally require that bearer token — the backend
-// derives whose attempt it is from the token, not from a caller-supplied id.
 import { getToken } from "./session";
 
 const GRADING_API_URL = process.env.NEXT_PUBLIC_API_URL;
 const GRADING_API_KEY = process.env.NEXT_PUBLIC_GRADING_API_KEY;
 
-export class GradingApiError extends Error {}
+export class GradingApiError extends Error {
+  constructor(
+    message: string,
+    public status = 0,
+  ) {
+    super(message);
+  }
+}
 
 function jsonHeaders(extra?: Record<string, string>): HeadersInit {
   return {
     "Content-Type": "application/json",
+    ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
     ...(GRADING_API_KEY ? { "X-API-Key": GRADING_API_KEY } : {}),
     ...extra,
   };
@@ -21,6 +24,7 @@ function jsonHeaders(extra?: Record<string, string>): HeadersInit {
 // No Content-Type here — the browser must set the multipart boundary itself.
 function formHeaders(extra?: Record<string, string>): HeadersInit {
   return {
+    ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
     ...(GRADING_API_KEY ? { "X-API-Key": GRADING_API_KEY } : {}),
     ...extra,
   };
@@ -95,6 +99,10 @@ export interface Test {
   course_id: string;
   test_name: string;
   max_attempts: number;
+  ends_at: string | null;
+  ended_at: string | null;
+  ended_by: string | null;
+  is_closed: boolean;
   questions: Question[];
   created_at: string;
 }
@@ -106,6 +114,9 @@ export interface Attempt {
   attempt_number: number;
   status: "in_progress" | "grading" | "graded" | "failed";
   started_at: string;
+  submitted_at: string | null;
+  submission_version: number;
+  revision: number;
   graded_at: string | null;
   error: string | null;
 }
@@ -116,14 +127,25 @@ export interface CriteriaMet {
   is_met: boolean;
 }
 
+export interface CriterionScore {
+  criteria_id: string;
+  score: number;
+}
+
 export interface QuestionResponse {
   id: string;
   attempt_id: string;
   question_id: string;
   answer: string;
-  score: number;
+  score: number | null;
+  original_score: number | null;
+  original_feedback: string | null;
+  overridden: boolean;
+  edited_by: string | null;
+  edited_at: string | null;
   feedback: string | null;
   criteria_met: CriteriaMet[];
+  criterion_scores: CriterionScore[] | null;
 }
 
 export interface AttemptGradeResult {
@@ -134,13 +156,15 @@ export interface AttemptGradeResult {
   percentage: number;
   completed_questions: number;
   total_questions: number;
+  questions: Question[];
+  can_edit: boolean;
 }
 
 export async function listCourses(): Promise<Course[]> {
   const res = await fetch(`${GRADING_API_URL}/api/v1/courses`, {
     headers: jsonHeaders(),
   });
-  if (!res.ok) throw new GradingApiError(await parseError(res));
+  if (!res.ok) throw new GradingApiError(await parseError(res), res.status);
   return res.json();
 }
 
@@ -153,7 +177,7 @@ export async function createCourse(params: {
     headers: jsonHeaders(),
     body: JSON.stringify(params),
   });
-  if (!res.ok) throw new GradingApiError(await parseError(res));
+  if (!res.ok) throw new GradingApiError(await parseError(res), res.status);
   return res.json();
 }
 
@@ -162,7 +186,7 @@ export async function listTests(courseId: string): Promise<Test[]> {
     `${GRADING_API_URL}/api/v1/courses/${encodeURIComponent(courseId)}/tests`,
     { headers: jsonHeaders() },
   );
-  if (!res.ok) throw new GradingApiError(await parseError(res));
+  if (!res.ok) throw new GradingApiError(await parseError(res), res.status);
   return res.json();
 }
 
@@ -171,7 +195,7 @@ export async function getTest(testId: string): Promise<Test> {
     `${GRADING_API_URL}/api/v1/tests/${encodeURIComponent(testId)}`,
     { headers: jsonHeaders() },
   );
-  if (!res.ok) throw new GradingApiError(await parseError(res));
+  if (!res.ok) throw new GradingApiError(await parseError(res), res.status);
   return res.json();
 }
 
@@ -181,18 +205,19 @@ export async function getTest(testId: string): Promise<Test> {
 // against the criteria CSV.
 export async function createTestFromCsv(
   courseId: string,
-  params: { file: File; testName: string; maxAttempts: number },
+  params: { file: File; testName: string; maxAttempts: number; endsAt: string },
 ): Promise<Test> {
   const form = new FormData();
   form.set("file", params.file);
   form.set("test_name", params.testName);
+  form.set("ends_at", params.endsAt);
   form.set("max_attempts", String(params.maxAttempts));
 
   const res = await fetch(
     `${GRADING_API_URL}/api/v1/courses/${encodeURIComponent(courseId)}/tests/csv`,
     { method: "POST", headers: formHeaders(), body: form },
   );
-  if (!res.ok) throw new GradingApiError(await parseError(res));
+  if (!res.ok) throw new GradingApiError(await parseError(res), res.status);
   return res.json();
 }
 
@@ -210,7 +235,7 @@ export async function uploadCriteriaCsv(
     `${GRADING_API_URL}/api/v1/tests/${encodeURIComponent(testId)}/criteria/csv`,
     { method: "POST", headers: formHeaders(), body: form },
   );
-  if (!res.ok) throw new GradingApiError(await parseError(res));
+  if (!res.ok) throw new GradingApiError(await parseError(res), res.status);
   return res.json();
 }
 
@@ -229,7 +254,7 @@ export async function uploadExamplesCsv(
     `${GRADING_API_URL}/api/v1/tests/${encodeURIComponent(testId)}/examples/csv`,
     { method: "POST", headers: formHeaders(), body: form },
   );
-  if (!res.ok) throw new GradingApiError(await parseError(res));
+  if (!res.ok) throw new GradingApiError(await parseError(res), res.status);
   return res.json();
 }
 
@@ -250,7 +275,7 @@ export async function setGradingMethod(
       body: JSON.stringify({ method }),
     },
   );
-  if (!res.ok) throw new GradingApiError(await parseError(res));
+  if (!res.ok) throw new GradingApiError(await parseError(res), res.status);
   return res.json();
 }
 
@@ -262,7 +287,7 @@ export async function createAttempt(testId: string): Promise<Attempt> {
       headers: attemptHeaders(),
     },
   );
-  if (!res.ok) throw new GradingApiError(await parseError(res));
+  if (!res.ok) throw new GradingApiError(await parseError(res), res.status);
   return res.json();
 }
 
@@ -271,7 +296,7 @@ export async function listAttempts(testId: string): Promise<Attempt[]> {
     `${GRADING_API_URL}/api/v1/tests/${encodeURIComponent(testId)}/attempts`,
     { headers: attemptHeaders() },
   );
-  if (!res.ok) throw new GradingApiError(await parseError(res));
+  if (!res.ok) throw new GradingApiError(await parseError(res), res.status);
   return res.json();
 }
 
@@ -283,7 +308,10 @@ export async function listAttempts(testId: string): Promise<Attempt[]> {
 export async function gradeAttempt(
   testId: string,
   attemptId: string,
-  params: { responses: Array<{ question_id: string; answer: string }>; finalize?: boolean },
+  params: {
+    responses: Array<{ question_id: string; answer: string }>;
+    finalize?: boolean;
+  },
 ): Promise<Attempt> {
   const res = await fetch(
     `${GRADING_API_URL}/api/v1/tests/${encodeURIComponent(testId)}/attempts/${encodeURIComponent(attemptId)}/grade`,
@@ -296,19 +324,20 @@ export async function gradeAttempt(
       }),
     },
   );
-  if (!res.ok) throw new GradingApiError(await parseError(res));
+  if (!res.ok) throw new GradingApiError(await parseError(res), res.status);
   return res.json();
 }
 
 export async function getAttemptResult(
   testId: string,
   attemptId: string,
+  signal?: AbortSignal,
 ): Promise<AttemptGradeResult> {
   const res = await fetch(
     `${GRADING_API_URL}/api/v1/tests/${encodeURIComponent(testId)}/attempts/${encodeURIComponent(attemptId)}`,
-    { headers: attemptHeaders() },
+    { headers: attemptHeaders(), signal, cache: "no-store" },
   );
-  if (!res.ok) throw new GradingApiError(await parseError(res));
+  if (!res.ok) throw new GradingApiError(await parseError(res), res.status);
   return res.json();
 }
 
@@ -318,12 +347,18 @@ export async function getAttemptResult(
 export async function waitForAttemptGrading(
   testId: string,
   attemptId: string,
-  { intervalMs = 1500, timeoutMs = 120_000 }: { intervalMs?: number; timeoutMs?: number } = {},
+  {
+    intervalMs = 1500,
+    timeoutMs = 120_000,
+  }: { intervalMs?: number; timeoutMs?: number } = {},
 ): Promise<AttemptGradeResult> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const result = await getAttemptResult(testId, attemptId);
-    if (result.attempt.status === "graded" || result.attempt.status === "failed") {
+    if (
+      result.attempt.status === "graded" ||
+      result.attempt.status === "failed"
+    ) {
       return result;
     }
     if (Date.now() > deadline) {
@@ -333,4 +368,82 @@ export async function waitForAttemptGrading(
     }
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
+}
+
+export interface StudentSubmissionSummary {
+  user_id: string;
+  full_name: string;
+  student_number: string;
+  latest_submission: Attempt | null;
+  latest_graded_submission: Attempt | null;
+  total_score: number | null;
+  max_score: number;
+}
+
+async function workflowRequest<T>(
+  path: string,
+  options: RequestInit = {},
+): Promise<T> {
+  const res = await fetch(`${GRADING_API_URL}/api/v1/tests/${path}`, {
+    ...options,
+    headers: attemptHeaders(),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new GradingApiError(await parseError(res), res.status);
+  return res.json();
+}
+
+export function listSubmissions(testId: string, signal?: AbortSignal) {
+  return workflowRequest<StudentSubmissionSummary[]>(
+    `${encodeURIComponent(testId)}/submissions`,
+    { signal },
+  );
+}
+
+export function getSubmission(
+  testId: string,
+  attemptId: string,
+  signal?: AbortSignal,
+) {
+  return workflowRequest<AttemptGradeResult>(
+    `${encodeURIComponent(testId)}/submissions/${encodeURIComponent(attemptId)}`,
+    { signal },
+  );
+}
+
+export function editSubmission(
+  testId: string,
+  attemptId: string,
+  revision: number,
+  responses: Array<{
+    response_id: string;
+    score: number;
+    feedback: string;
+    criterion_scores?: CriterionScore[];
+  }>,
+) {
+  return workflowRequest<AttemptGradeResult>(
+    `${encodeURIComponent(testId)}/submissions/${encodeURIComponent(attemptId)}/grades`,
+    { method: "PATCH", body: JSON.stringify({ revision, responses }) },
+  );
+}
+
+export function retryGrading(testId: string, attemptId: string) {
+  return workflowRequest<Attempt>(
+    `${encodeURIComponent(testId)}/attempts/${encodeURIComponent(attemptId)}/retry-grading`,
+    { method: "POST" },
+  );
+}
+
+export function endTest(testId: string) {
+  return workflowRequest<Test>(`${encodeURIComponent(testId)}/end`, {
+    method: "POST",
+  });
+}
+
+export function setTestDeadline(testId: string, endsAt: string) {
+  return workflowRequest<Test>(`${encodeURIComponent(testId)}/deadline`, {
+    method: "PATCH",
+    body: JSON.stringify({ ends_at: endsAt }),
+  });
 }

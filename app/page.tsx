@@ -1,16 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { getUser, onSessionChange, SessionUser } from "./lib/session";
+import { useSessionUser } from "./lib/useSessionUser";
 
 export default function Home() {
-  const [user, setUser] = useState<SessionUser | null | undefined>(undefined);
-
-  useEffect(() => {
-    setUser(getUser());
-    return onSessionChange(() => setUser(getUser()));
-  }, []);
+  const user = useSessionUser();
 
   if (user === undefined) {
     return null;

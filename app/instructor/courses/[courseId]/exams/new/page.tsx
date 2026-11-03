@@ -1,9 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { useLocalTimezone } from "@/app/lib/testDates";
 import { useRouter } from "next/navigation";
 import { use, useState } from "react";
-import { createTestFromCsv, GradingApiError } from "../../../../../lib/gradingApi";
+import {
+  createTestFromCsv,
+  GradingApiError,
+} from "../../../../../lib/gradingApi";
 
 const inputClass =
   "mt-1 w-full rounded border border-black/15 px-3 py-2 text-sm outline-none focus:border-brand-light focus:ring-1 focus:ring-brand-light";
@@ -19,10 +23,12 @@ export default function NewTestPage({
   const { courseId } = use(params);
   const router = useRouter();
 
+  const timezone = useLocalTimezone();
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const [testName, setTestName] = useState("");
+  const [endsAt, setEndsAt] = useState("");
   const [maxAttempts, setMaxAttempts] = useState("1");
   const [file, setFile] = useState<File | null>(null);
 
@@ -35,13 +41,16 @@ export default function NewTestPage({
       await createTestFromCsv(courseId, {
         file,
         testName,
+        endsAt: new Date(endsAt).toISOString(),
         maxAttempts: Number(maxAttempts),
       });
       // Rubric criteria are uploaded separately from the course page's test
       // card, once the test (and its question ids) exist.
       router.push(`/instructor/courses/${encodeURIComponent(courseId)}`);
     } catch (err) {
-      setError(err instanceof GradingApiError ? err.message : "Failed to create test.");
+      setError(
+        err instanceof GradingApiError ? err.message : "Failed to create test.",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -77,6 +86,18 @@ export default function NewTestPage({
             </div>
             <div>
               <label className={labelClass}>
+                End date ({timezone})
+                <input
+                  type="datetime-local"
+                  required
+                  value={endsAt}
+                  onChange={(event) => setEndsAt(event.target.value)}
+                  className={inputClass}
+                />
+              </label>
+            </div>
+            <div>
+              <label className={labelClass}>
                 Max attempts
                 <input
                   type="number"
@@ -95,12 +116,14 @@ export default function NewTestPage({
           <h2 className="text-lg font-semibold text-brand-dark">Questions</h2>
           <p className="mt-1 text-xs text-foreground/50">
             CSV with a header row, then one row per question:{" "}
-            <span className="font-mono">id, prompt, max_score, score_increment</span>{" "}
+            <span className="font-mono">
+              id, prompt, max_score, score_increment
+            </span>{" "}
             (optionally <span className="font-mono">model_answer</span>). The{" "}
-            <span className="font-mono">id</span> is your own question number (e.g.{" "}
-            <span className="font-mono">1.1</span>, <span className="font-mono">1.2</span>)
-            — you&apos;ll reuse it in the rubric CSV to attach criteria to the right
-            question.
+            <span className="font-mono">id</span> is your own question number
+            (e.g. <span className="font-mono">1.1</span>,{" "}
+            <span className="font-mono">1.2</span>) — you&apos;ll reuse it in
+            the rubric CSV to attach criteria to the right question.
           </p>
           <input
             type="file"
@@ -113,7 +136,7 @@ export default function NewTestPage({
 
         <button
           type="submit"
-          disabled={submitting || !file || !testName}
+          disabled={submitting || !file || !testName || !endsAt}
           className="self-start rounded bg-brand-light px-5 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
         >
           {submitting ? "Creating..." : "Create test"}

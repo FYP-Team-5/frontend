@@ -3,22 +3,16 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { clearSession, getUser, onSessionChange, SessionUser } from "../lib/session";
+import { clearSession } from "../lib/session";
+import { useSessionUser } from "../lib/useSessionUser";
 import D2LIcon from "./D2LIcon";
 
 export default function Header() {
   const router = useRouter();
-  const [user, setUser] = useState<SessionUser | null | undefined>(undefined);
-
-  useEffect(() => {
-    setUser(getUser());
-    return onSessionChange(() => setUser(getUser()));
-  }, []);
+  const user = useSessionUser();
 
   function handleLogout() {
     clearSession();
-    setUser(null);
     router.push("/login");
   }
 

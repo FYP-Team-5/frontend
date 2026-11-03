@@ -1,8 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { formatTestDate, useLocalTimezone } from "@/app/lib/testDates";
 import { use, useEffect, useState } from "react";
-import { GradingApiError, Test, listCourses, listTests } from "../../../lib/gradingApi";
+import {
+  GradingApiError,
+  Test,
+  listCourses,
+  listTests,
+} from "../../../lib/gradingApi";
 
 export default function StudentCoursePage({
   params,
@@ -11,19 +17,19 @@ export default function StudentCoursePage({
 }) {
   const { courseId } = use(params);
 
+  const timezone = useLocalTimezone();
   const [courseName, setCourseName] = useState<string | null>(null);
   const [tests, setTests] = useState<Test[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setLoading(true);
-    setError(null);
     Promise.allSettled([listCourses(), listTests(courseId)]).then(
       ([coursesResult, testsResult]) => {
         if (coursesResult.status === "fulfilled") {
           setCourseName(
-            coursesResult.value.find((course) => course.id === courseId)?.course_name ?? null,
+            coursesResult.value.find((course) => course.id === courseId)
+              ?.course_name ?? null,
           );
         }
         if (testsResult.status === "fulfilled") {
@@ -42,7 +48,10 @@ export default function StudentCoursePage({
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-10">
-      <Link href="/student" className="text-sm text-brand-light hover:underline">
+      <Link
+        href="/student"
+        className="text-sm text-brand-light hover:underline"
+      >
         &larr; Back to courses
       </Link>
       <h1 className="mt-2 text-2xl font-semibold text-brand-dark">
@@ -65,7 +74,15 @@ export default function StudentCoursePage({
             <div className="p-4">
               <p className="font-semibold text-foreground">{test.test_name}</p>
               <p className="mt-1 text-xs uppercase tracking-wide text-foreground/50">
-                {test.questions.length} question(s) · max {test.max_attempts} attempt(s)
+                {test.questions.length} question(s) · max {test.max_attempts}{" "}
+                attempt(s)
+              </p>
+              <p className="mt-2 text-xs">
+                {test.is_closed ? "Closed" : "Open"} · Ends:{" "}
+                {formatTestDate(test.ends_at)} ({timezone})
+              </p>
+              <p className="mt-3 text-sm text-brand-light">
+                Open test and attempt history &rarr;
               </p>
             </div>
           </Link>

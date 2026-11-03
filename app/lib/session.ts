@@ -16,7 +16,7 @@ export function setSession(token: string, user: SessionUser) {
 }
 
 export function getToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
+  return typeof window === "undefined" ? null : localStorage.getItem(TOKEN_KEY);
 }
 
 export function getUser(): SessionUser | null {
@@ -37,5 +37,9 @@ export function clearSession() {
 
 export function onSessionChange(callback: () => void): () => void {
   window.addEventListener(SESSION_EVENT, callback);
-  return () => window.removeEventListener(SESSION_EVENT, callback);
+  window.addEventListener("storage", callback);
+  return () => {
+    window.removeEventListener(SESSION_EVENT, callback);
+    window.removeEventListener("storage", callback);
+  };
 }

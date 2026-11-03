@@ -1,0 +1,143 @@
+import { getToken } from "./session";
+import { GradingApiError, CriterionScore } from "./gradingApi";
+
+const base = process.env.NEXT_PUBLIC_API_URL;
+
+export interface DatasetVersion {
+  id: string;
+  number: number;
+  schema_version: number;
+  parent_version_id: string | null;
+  source: "instructor_upload" | "test_export";
+  creator_id: string | null;
+  created_at: string;
+  ready_at: string | null;
+  filename: string | null;
+  status: "pending" | "running" | "ready" | "failed" | "unchanged";
+  checksum: string | null;
+  row_count: number | null;
+  byte_size: number | null;
+  last_error: string | null;
+  retry_of: string | null;
+  is_active: boolean;
+}
+
+export interface TrainingExport {
+  test_id: string;
+  status:
+    | "open"
+    | "pending"
+    | "waiting"
+    | "exporting"
+    | "completed"
+    | "needs_attention"
+    | "failed";
+  row_count: number;
+  excluded: Array<{
+    attempt_id: string;
+    question_id: string | null;
+    reason: string;
+  }>;
+  version_id: string | null;
+  last_error: string | null;
+}
+
+async function request(path: string, options: RequestInit = {}) {
+  const token = getToken();
+  const key = process.env.NEXT_PUBLIC_GRADING_API_KEY;
+  const response = await fetch(`${base}/api/v1/${path}`, {
+    ...options,
+    cache: "no-store",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(key ? { "X-API-Key": key } : {}),
+      ...options.headers,
+    },
+  });
+  if (!response.ok) {
+    let message = response.statusText;
+    try {
+      const body = await response.json();
+      message =
+        typeof body.detail === "string"
+          ? body.detail
+          : JSON.stringify(body.detail);
+    } catch {}
+    throw new GradingApiError(message, response.status);
+  }
+  return response;
+}
+
+export async function listDatasetVersions(
+  signal?: AbortSignal,
+): Promise<DatasetVersion[]> {
+  return (await request("training-dataset/versions", { signal })).json();
+}
+export async function datasetStorageStatus(
+  signal?: AbortSignal,
+): Promise<{ status: string }> {
+  return (await request("training-dataset/status", { signal })).json();
+}
+export async function uploadDataset(
+  file: File,
+  uploadKey: string,
+): Promise<DatasetVersion> {
+  const body = new FormData();
+  body.set("file", file);
+  return (
+    await request("training-dataset/versions", {
+      method: "POST",
+      body,
+      headers: { "Idempotency-Key": uploadKey },
+    })
+  ).json();
+}
+export async function retryDatasetVersion(id: string): Promise<DatasetVersion> {
+  return (
+    await request(`training-dataset/versions/${encodeURIComponent(id)}/retry`, {
+      method: "POST",
+    })
+  ).json();
+}
+export async function downloadDataset(version?: DatasetVersion) {
+  const path = version
+    ? `training-dataset/versions/${encodeURIComponent(version.id)}/download`
+    : "training-dataset/download";
+  const response = await request(path);
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  const filename = response.headers
+    .get("Content-Disposition")
+    ?.match(/filename="([^"]+)"/)?.[1];
+  anchor.download =
+    filename ??
+    (version
+      ? `training-dataset-v${String(version.number).padStart(6, "0")}.csv`
+      : "training-dataset-latest.csv");
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+export async function getTrainingExport(
+  testId: string,
+  signal?: AbortSignal,
+): Promise<TrainingExport> {
+  return (
+    await request(`tests/${encodeURIComponent(testId)}/training-export`, {
+      signal,
+    })
+  ).json();
+}
+export async function retryTrainingExport(
+  testId: string,
+): Promise<TrainingExport> {
+  return (
+    await request(`tests/${encodeURIComponent(testId)}/training-export/retry`, {
+      method: "POST",
+    })
+  ).json();
+}
+export type { CriterionScore };

@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { use, useEffect, useState } from "react";
+import TestControls from "@/app/components/TestControls";
+import { use, useCallback, useEffect, useState } from "react";
 import {
+  Course,
   GradingApiError,
   GradingMethod,
   Question,
@@ -65,16 +67,7 @@ export default function CoursePage({
   const [settingMethod, setSettingMethod] = useState(false);
   const [bulkSettingTestId, setBulkSettingTestId] = useState<string | null>(null);
 
-  async function refresh() {
-    setLoading(true);
-    setError(null);
-    // Fetched independently (not Promise.all) so that one source failing
-    // doesn't also block the other from updating with data that loaded.
-    const [coursesResult, testsResult] = await Promise.allSettled([
-      listCourses(),
-      listTests(courseId),
-    ]);
-
+  const applyResults = useCallback(([coursesResult, testsResult]: [PromiseSettledResult<Course[]>, PromiseSettledResult<Test[]>]) => {
     if (coursesResult.status === "fulfilled") {
       setCourseName(
         coursesResult.value.find((course) => course.id === courseId)?.course_name ?? null,
@@ -84,6 +77,7 @@ export default function CoursePage({
       setTests(testsResult.value);
     }
 
+    setError(null);
     const failure = [coursesResult, testsResult].find(
       (result) => result.status === "rejected",
     );
@@ -92,11 +86,25 @@ export default function CoursePage({
       setError(err instanceof GradingApiError ? err.message : "Failed to load course data.");
     }
     setLoading(false);
+  }, [courseId]);
+
+  async function refresh() {
+    applyResults(await Promise.allSettled([listCourses(), listTests(courseId)]));
   }
 
   useEffect(() => {
-    refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let active = true;
+    Promise.allSettled([listCourses(), listTests(courseId)]).then((results) => {
+      if (active) applyResults(results);
+    });
+    return () => { active = false; };
+  }, [courseId, applyResults]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      listTests(courseId).then(setTests).catch(() => {});
+    }, 5000);
+    return () => window.clearInterval(timer);
   }, [courseId]);
 
   async function handleUploadCriteria(test: Test) {
@@ -213,6 +221,9 @@ export default function CoursePage({
                 <p className="mt-1 text-xs uppercase tracking-wide text-foreground/50">
                   {readiness.total} question(s) · max {test.max_attempts} attempt(s)
                 </p>
+
+                <TestControls test={test} courseId={courseId} onUpdated={(updated) =>
+                  setTests((previous) => previous.map((item) => item.id === updated.id ? updated : item))} />
 
                 {readiness.ready ? (
                   <p className="mt-3 text-xs font-medium text-green-700">
