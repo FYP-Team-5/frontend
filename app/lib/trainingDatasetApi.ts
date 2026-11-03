@@ -1,7 +1,4 @@
-import { getToken } from "./session";
-import { GradingApiError, CriterionScore } from "./gradingApi";
-
-const base = process.env.NEXT_PUBLIC_API_URL;
+import { apiFetch } from "./http";
 
 export interface DatasetVersion {
   id: string;
@@ -42,41 +39,15 @@ export interface TrainingExport {
   last_error: string | null;
 }
 
-async function request(path: string, options: RequestInit = {}) {
-  const token = getToken();
-  const key = process.env.NEXT_PUBLIC_GRADING_API_KEY;
-  const response = await fetch(`${base}/api/v1/${path}`, {
-    ...options,
-    cache: "no-store",
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(key ? { "X-API-Key": key } : {}),
-      ...options.headers,
-    },
-  });
-  if (!response.ok) {
-    let message = response.statusText;
-    try {
-      const body = await response.json();
-      message =
-        typeof body.detail === "string"
-          ? body.detail
-          : JSON.stringify(body.detail);
-    } catch {}
-    throw new GradingApiError(message, response.status);
-  }
-  return response;
-}
-
 export async function listDatasetVersions(
   signal?: AbortSignal,
 ): Promise<DatasetVersion[]> {
-  return (await request("training-dataset/versions", { signal })).json();
+  return (await apiFetch("training-dataset/versions", { signal })).json();
 }
 export async function datasetStorageStatus(
   signal?: AbortSignal,
 ): Promise<{ status: string }> {
-  return (await request("training-dataset/status", { signal })).json();
+  return (await apiFetch("training-dataset/status", { signal })).json();
 }
 export async function uploadDataset(
   file: File,
@@ -85,7 +56,7 @@ export async function uploadDataset(
   const body = new FormData();
   body.set("file", file);
   return (
-    await request("training-dataset/versions", {
+    await apiFetch("training-dataset/versions", {
       method: "POST",
       body,
       headers: { "Idempotency-Key": uploadKey },
@@ -94,16 +65,19 @@ export async function uploadDataset(
 }
 export async function retryDatasetVersion(id: string): Promise<DatasetVersion> {
   return (
-    await request(`training-dataset/versions/${encodeURIComponent(id)}/retry`, {
-      method: "POST",
-    })
+    await apiFetch(
+      `training-dataset/versions/${encodeURIComponent(id)}/retry`,
+      {
+        method: "POST",
+      },
+    )
   ).json();
 }
 export async function downloadDataset(version?: DatasetVersion) {
   const path = version
     ? `training-dataset/versions/${encodeURIComponent(version.id)}/download`
     : "training-dataset/download";
-  const response = await request(path);
+  const response = await apiFetch(path);
   const blob = await response.blob();
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
@@ -126,7 +100,7 @@ export async function getTrainingExport(
   signal?: AbortSignal,
 ): Promise<TrainingExport> {
   return (
-    await request(`tests/${encodeURIComponent(testId)}/training-export`, {
+    await apiFetch(`tests/${encodeURIComponent(testId)}/training-export`, {
       signal,
     })
   ).json();
@@ -135,9 +109,11 @@ export async function retryTrainingExport(
   testId: string,
 ): Promise<TrainingExport> {
   return (
-    await request(`tests/${encodeURIComponent(testId)}/training-export/retry`, {
-      method: "POST",
-    })
+    await apiFetch(
+      `tests/${encodeURIComponent(testId)}/training-export/retry`,
+      {
+        method: "POST",
+      },
+    )
   ).json();
 }
-export type { CriterionScore };

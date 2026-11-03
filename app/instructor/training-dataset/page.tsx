@@ -18,6 +18,7 @@ export default function TrainingDatasetPage() {
   const [storage, setStorage] = useState("unknown");
   const [file, setFile] = useState<File | null>(null);
   const [uploadKey, setUploadKey] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -29,17 +30,19 @@ export default function TrainingDatasetPage() {
   useEffect(() => {
     let current = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let storageTimer: ReturnType<typeof setTimeout> | undefined;
     const controller = new AbortController();
     async function refresh() {
       try {
         const data = await listDatasetVersions(controller.signal);
         if (current) {
           setVersions(data);
+          setLoadError(null);
           setLoading(false);
         }
       } catch (err) {
         if (current) {
-          setError(
+          setLoadError(
             err instanceof Error
               ? err.message
               : "Unable to load dataset versions.",
@@ -50,16 +53,20 @@ export default function TrainingDatasetPage() {
       if (current) timer = setTimeout(refresh, 3000);
     }
     void refresh();
-    datasetStorageStatus(controller.signal)
-      .then((result) => {
+    async function checkStorage() {
+      try {
+        const result = await datasetStorageStatus(controller.signal);
         if (current) setStorage(result.status);
-      })
-      .catch(() => {
+      } catch {
         if (current) setStorage("unavailable");
-      });
+      }
+      if (current) storageTimer = setTimeout(checkStorage, 10000);
+    }
+    void checkStorage();
     return () => {
       current = false;
       clearTimeout(timer);
+      clearTimeout(storageTimer);
       controller.abort();
     };
   }, [reload]);
@@ -139,9 +146,9 @@ export default function TrainingDatasetPage() {
             ? "Checking..."
             : "Unavailable — uploads can be queued; quiz grading continues."}
       </p>
-      {error && (
+      {(error || loadError) && (
         <p role="alert" className="mt-4 text-sm text-red-700">
-          {error}
+          {error || loadError}
         </p>
       )}
       {message && (

@@ -69,34 +69,45 @@ export default function TakeTestPage({
     };
   }, [testId]);
 
+  const testLoaded = test !== null;
+  const endsAt = test?.ends_at;
+  const serverClosed = test?.is_closed;
   useEffect(() => {
-    if (!test) return;
-    // The server remains authoritative; refresh availability for manual closure too.
-    const check = () => {
-      if (test.ends_at && Date.now() >= Date.parse(test.ends_at))
-        setClosed(true);
-      getTest(testId)
-        .then((fresh) => {
+    if (!testLoaded || serverClosed) return;
+    let active = true;
+    let checking = false;
+    const controller = new AbortController();
+    // Observe changing availability, while keeping the clock independent of fetched object identity.
+    const check = async () => {
+      if (endsAt && Date.now() >= Date.parse(endsAt)) setClosed(true);
+      if (checking) return;
+      checking = true;
+      try {
+        const fresh = await getTest(testId, controller.signal);
+        if (active) {
           setClosed(fresh.is_closed);
           setTest(fresh);
-        })
-        .catch(() => {});
+        }
+      } catch {
+        /* Server-side closure still guards submissions while offline. */
+      } finally {
+        checking = false;
+      }
     };
     const timer = window.setInterval(check, 5000);
-    const deadlineTimer = test.ends_at
+    const deadlineTimer = endsAt
       ? window.setTimeout(
           check,
-          Math.min(
-            Math.max(0, Date.parse(test.ends_at) - Date.now()),
-            2_147_483_647,
-          ),
+          Math.min(Math.max(0, Date.parse(endsAt) - Date.now()), 2_147_483_647),
         )
       : undefined;
     return () => {
+      active = false;
+      controller.abort();
       window.clearInterval(timer);
       window.clearTimeout(deadlineTimer);
     };
-  }, [test, testId]);
+  }, [testLoaded, serverClosed, endsAt, testId]);
 
   async function start() {
     setBusy(true);
