@@ -1,8 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { getUser } from "../lib/session";
+import { useEffect } from "react";
+import { useSessionUser } from "../lib/useSessionUser";
 
 export default function InstructorLayout({
   children,
@@ -10,16 +10,12 @@ export default function InstructorLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const [authorized, setAuthorized] = useState<boolean | null>(null);
+  const user = useSessionUser();
+  const authorized = user?.role === "instructor";
 
   useEffect(() => {
-    const user = getUser();
-    if (!user || user.role !== "instructor") {
-      router.replace("/login");
-      return;
-    }
-    setAuthorized(true);
-  }, [router]);
+    if (user !== undefined && !authorized) router.replace("/login");
+  }, [user, authorized, router]);
 
   if (!authorized) {
     return null;

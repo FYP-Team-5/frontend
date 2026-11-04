@@ -16,17 +16,7 @@ export function setSession(token: string, user: SessionUser) {
 }
 
 export function getToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
-}
-
-export function getUser(): SessionUser | null {
-  const raw = localStorage.getItem(USER_KEY);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as SessionUser;
-  } catch {
-    return null;
-  }
+  return typeof window === "undefined" ? null : localStorage.getItem(TOKEN_KEY);
 }
 
 export function clearSession() {
@@ -37,5 +27,9 @@ export function clearSession() {
 
 export function onSessionChange(callback: () => void): () => void {
   window.addEventListener(SESSION_EVENT, callback);
-  return () => window.removeEventListener(SESSION_EVENT, callback);
+  window.addEventListener("storage", callback);
+  return () => {
+    window.removeEventListener(SESSION_EVENT, callback);
+    window.removeEventListener("storage", callback);
+  };
 }

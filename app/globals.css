@@ -23,3 +23,19 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
 }
+
+/* Universal button feedback: colours transition (utility hover classes supply
+   the target colours) and buttons give a subtle press animation. Tailwind's
+   transition-* utilities win over this element rule where present. */
+button {
+  transition-property: background-color, color, border-color, opacity,
+    box-shadow, transform;
+  transition-duration: 150ms;
+  transition-timing-function: ease;
+}
+button:not(:disabled):hover {
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.15);
+}
+button:not(:disabled):active {
+  transform: scale(0.97);
+}
