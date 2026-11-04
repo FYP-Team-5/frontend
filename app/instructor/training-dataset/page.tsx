@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { newRequestId } from "@/app/lib/requestId";
 import { useEffect, useRef, useState } from "react";
+import { useToast } from "@/app/components/ToastProvider";
+import ReloadButton from "@/app/components/ReloadButton";
 import {
   DatasetVersion,
   datasetStorageStatus,
@@ -12,6 +14,18 @@ import {
   uploadDataset,
 } from "@/app/lib/trainingDatasetApi";
 import { formatTestDate } from "@/app/lib/testDates";
+
+/** Human-readable "course · test (N rows)" summaries from the version manifest. */
+function exportContributions(version: DatasetVersion): string[] {
+  const counts = new Map<string, number>();
+  for (const entry of version.source_manifest ?? []) {
+    const label = `${entry.course_code} · ${entry.test_name}`;
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  return [...counts].map(
+    ([label, count]) => `${label} (${count} row${count === 1 ? "" : "s"})`,
+  );
+}
 
 export default function TrainingDatasetPage() {
   const [versions, setVersions] = useState<DatasetVersion[]>([]);
@@ -24,7 +38,11 @@ export default function TrainingDatasetPage() {
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [reload, setReload] = useState(0);
+  const toast = useToast();
   const fileInput = useRef<HTMLInputElement>(null);
+  // Set when the Reload button is clicked; the next refresh result answers
+  // it with a toast instead of the silent 3s poll.
+  const manualReload = useRef(false);
   const active = versions.find((version) => version.is_active);
 
   useEffect(() => {
@@ -39,6 +57,10 @@ export default function TrainingDatasetPage() {
           setVersions(data);
           setLoadError(null);
           setLoading(false);
+          if (manualReload.current) {
+            manualReload.current = false;
+            toast("Refreshed training dataset");
+          }
         }
       } catch (err) {
         if (current) {
@@ -48,6 +70,10 @@ export default function TrainingDatasetPage() {
               : "Unable to load dataset versions.",
           );
           setLoading(false);
+          if (manualReload.current) {
+            manualReload.current = false;
+            toast("Failed to refresh, check back later.", "error");
+          }
         }
       }
       if (current) timer = setTimeout(refresh, 3000);
@@ -82,16 +108,17 @@ export default function TrainingDatasetPage() {
       setMessage(
         `CSV accepted as version ${version.number}. It will be available for download after publication.`,
       );
+      toast(`Upload accepted as version ${version.number}. Publication is queued.`);
       setFile(null);
       setUploadKey(null);
       if (fileInput.current) fileInput.current.value = "";
       setReload((value) => value + 1);
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Could not confirm upload. Retry with the same file to check its status.",
-      );
+      const message = err instanceof Error
+        ? err.message
+        : "Could not confirm upload. Retry with the same file to check its status.";
+      setError(message);
+      toast(message, "error");
     } finally {
       setBusy(false);
     }
@@ -102,7 +129,10 @@ export default function TrainingDatasetPage() {
     try {
       await downloadDataset(version);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to download CSV.");
+      const message =
+        err instanceof Error ? err.message : "Unable to download CSV.";
+      setError(message);
+      toast(message, "error");
     } finally {
       setBusy(false);
     }
@@ -113,18 +143,20 @@ export default function TrainingDatasetPage() {
     try {
       await retryDatasetVersion(version.id);
       setMessage("Publication queued again.");
+      toast(`Publication of v${version.number} queued again.`);
       setReload((value) => value + 1);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Unable to retry publication.",
-      );
+      const message =
+        err instanceof Error ? err.message : "Unable to retry publication.";
+      setError(message);
+      toast(message, "error");
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-10">
+    <div className="mx-auto max-w-5xl px-6 py-10">
       <Link
         href="/instructor"
         className="text-sm text-brand-light hover:underline"
@@ -197,16 +229,18 @@ export default function TrainingDatasetPage() {
           Version history
         </h2>
         <div className="flex gap-4">
-          <button
-            onClick={() => setReload((value) => value + 1)}
-            className="text-sm text-brand-light underline"
-          >
-            Refresh
-          </button>
+          <ReloadButton
+            label="Refresh"
+            onClick={() => {
+              manualReload.current = true;
+              setReload((value) => value + 1);
+            }}
+            disabled={loading}
+          />
           <button
             disabled={busy || !active}
             onClick={() => download()}
-            className="rounded bg-brand-light px-4 py-2 text-sm text-white disabled:opacity-50"
+            className="rounded bg-brand-light px-4 py-2 text-sm text-white disabled:opacity-50 transition-colors hover:bg-brand-dark transition-colors hover:bg-brand-dark"
           >
             Download latest CSV
           </button>
@@ -253,6 +287,12 @@ export default function TrainingDatasetPage() {
                       {version.filename}
                     </span>
                   )}
+                  {version.source === "test_export" && (
+                    <span className="block text-xs text-foreground/60">
+                      {exportContributions(version).join(" · ") ||
+                        "Automatically collected test rows"}
+                    </span>
+                  )}
                 </td>
                 <td className="px-4 py-3">
                   {formatTestDate(version.created_at)}
@@ -271,7 +311,7 @@ export default function TrainingDatasetPage() {
                     <button
                       disabled={busy}
                       onClick={() => download(version)}
-                      className="text-brand-light underline disabled:opacity-50"
+                      className="inline-flex rounded bg-brand-light px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50 transition-colors hover:bg-brand-dark"
                     >
                       Download v{version.number} CSV
                     </button>
@@ -280,7 +320,7 @@ export default function TrainingDatasetPage() {
                     <button
                       disabled={busy}
                       onClick={() => retry(version)}
-                      className="text-brand-light underline disabled:opacity-50"
+                      className="inline-flex rounded border border-brand-dark px-3 py-1.5 text-xs font-medium text-brand-dark transition-colors hover:bg-brand-dark hover:text-white disabled:opacity-50"
                     >
                       Retry publication
                     </button>

@@ -1,5 +1,18 @@
 import { apiFetch } from "./http";
 
+export interface DatasetSourceEntry {
+  source_key: string;
+  test_id: string;
+  attempt_id: string;
+  question_id: string;
+  submission_version: number;
+  grade_revision: number;
+  label_source: string;
+  test_name: string;
+  course_code: string;
+  course_name: string;
+}
+
 export interface DatasetVersion {
   id: string;
   number: number;
@@ -17,6 +30,7 @@ export interface DatasetVersion {
   last_error: string | null;
   retry_of: string | null;
   is_active: boolean;
+  source_manifest: DatasetSourceEntry[] | null;
 }
 
 export interface TrainingExport {

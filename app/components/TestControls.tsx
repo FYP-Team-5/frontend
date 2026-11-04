@@ -1,14 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import TrainingExportStatus from "./TrainingExportStatus";
 import { useState } from "react";
+import { useToast } from "./ToastProvider";
 import { Test, endTest, setTestDeadline } from "@/app/lib/gradingApi";
-import {
-  formatTestDate,
-  localDateInput,
-  useLocalTimezone,
-} from "@/app/lib/testDates";
+import { localDateInput, useLocalTimezone } from "@/app/lib/testDates";
 
 export default function TestControls({
   test,
@@ -20,9 +16,14 @@ export default function TestControls({
   onUpdated: (test: Test) => void;
 }) {
   const timezone = useLocalTimezone();
+  const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const closed = test.is_closed;
+  // "Ended" means permanently over (ended early or past the deadline).
+  // An upcoming test is not open yet, but stays administratively editable.
+  const ended =
+    test.ended_at !== null ||
+    (test.ends_at !== null && Date.now() >= Date.parse(test.ends_at));
   async function closeTest() {
     if (
       !window.confirm(
@@ -34,8 +35,11 @@ export default function TestControls({
     setError(null);
     try {
       onUpdated(await endTest(test.id));
+      toast(`"${test.test_name}" ended. Training export will collect results.`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to end test.");
+      const message = err instanceof Error ? err.message : "Unable to end test.";
+      setError(message);
+      toast(message, "error");
     } finally {
       setBusy(false);
     }
@@ -47,27 +51,22 @@ export default function TestControls({
     setError(null);
     try {
       onUpdated(await setTestDeadline(test.id, new Date(value).toISOString()));
+      toast(`End date updated for "${test.test_name}".`);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Unable to update deadline.",
-      );
+      const message =
+        err instanceof Error ? err.message : "Unable to update deadline.";
+      setError(message);
+      toast(message, "error");
     } finally {
       setBusy(false);
     }
   }
+  // Status display (badge, question count, end date) lives on the instructor
+  // test detail page so it matches the student view (TODO.md R7); this
+  // component only hosts the administrative actions.
   return (
-    <div className="mt-3 space-y-3 border-t border-gray-200 pt-3">
-      <p className="text-sm font-semibold">{closed ? "Closed" : "Open"}</p>
-      <p className="text-xs text-foreground/60">
-        Ends: {formatTestDate(test.ends_at)} ({timezone})
-      </p>
-      <Link
-        className="block text-sm font-medium text-brand-light underline"
-        href={`/instructor/courses/${encodeURIComponent(courseId)}/tests/${encodeURIComponent(test.id)}/submissions`}
-      >
-        View submissions
-      </Link>
-      {!closed && (
+    <div className="mt-3 space-y-3">
+      {!ended && (
         <>
           <form onSubmit={saveDeadline} className="space-y-2">
             <label className="block text-xs font-medium">
@@ -85,7 +84,7 @@ export default function TestControls({
             </label>
             <button
               disabled={busy}
-              className="rounded border border-brand-dark px-3 py-1.5 text-xs text-brand-dark disabled:opacity-50"
+              className="rounded border border-brand-dark px-3 py-1.5 text-xs text-brand-dark transition-colors hover:bg-brand-dark hover:text-white disabled:opacity-50"
             >
               Save end date
             </button>
@@ -93,13 +92,13 @@ export default function TestControls({
           <button
             onClick={closeTest}
             disabled={busy}
-            className="rounded border border-red-700 px-3 py-1.5 text-xs font-medium text-red-700 disabled:opacity-50"
+            className="rounded border border-red-700 px-3 py-1.5 text-xs font-medium text-red-700 transition-colors hover:bg-red-700 hover:text-white disabled:opacity-50"
           >
             {busy ? "Updating..." : "End test"}
           </button>
         </>
       )}
-      {closed && <TrainingExportStatus testId={test.id} courseId={courseId} />}
+      {ended && <TrainingExportStatus testId={test.id} courseId={courseId} />}
       {error && (
         <p role="alert" className="text-xs text-red-700">
           {error}

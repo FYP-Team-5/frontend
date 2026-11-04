@@ -63,7 +63,7 @@ export default function Header() {
               </span>
               <button
                 onClick={handleLogout}
-                className="rounded bg-brand-light px-3 py-1.5 font-medium text-white hover:opacity-90"
+                className="rounded bg-brand-light px-3 py-1.5 font-medium text-white hover:opacity-90 transition-colors hover:bg-brand-dark"
               >
                 Log out
               </button>
@@ -78,7 +78,7 @@ export default function Header() {
               </Link>
               <Link
                 href="/register"
-                className="rounded bg-brand-light px-3 py-1.5 font-medium text-white hover:opacity-90"
+                className="rounded bg-brand-light px-3 py-1.5 font-medium text-white hover:opacity-90 transition-colors hover:bg-brand-dark"
               >
                 Register
               </Link>

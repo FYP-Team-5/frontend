@@ -49,6 +49,7 @@ export interface Test {
   course_id: string;
   test_name: string;
   max_attempts: number;
+  starts_at: string | null;
   ends_at: string | null;
   ended_at: string | null;
   ended_by: string | null;
@@ -144,42 +145,32 @@ export function getTest(testId: string, signal?: AbortSignal): Promise<Test> {
 }
 export function createTestFromCsv(
   courseId: string,
-  params: { file: File; testName: string; maxAttempts: number; endsAt: string },
+  params: {
+    file: File;
+    testName: string;
+    maxAttempts: number;
+    startsAt: string;
+    endsAt: string;
+  },
 ): Promise<Test> {
   const body = new FormData();
   body.set("file", params.file);
   body.set("test_name", params.testName);
   body.set("max_attempts", String(params.maxAttempts));
+  body.set("starts_at", params.startsAt);
   body.set("ends_at", params.endsAt);
   return apiJson(`courses/${encodeURIComponent(courseId)}/tests/csv`, {
     method: "POST",
     body,
   });
 }
-function uploadTestCsv(
-  testId: string,
-  kind: "criteria" | "examples",
-  file: File,
-): Promise<Test> {
+function uploadTestCsv(testId: string, kind: "criteria", file: File): Promise<Test> {
   const body = new FormData();
   body.set("file", file);
   return apiJson(`${testPath(testId)}/${kind}/csv`, { method: "POST", body });
 }
 export function uploadCriteriaCsv(testId: string, file: File): Promise<Test> {
   return uploadTestCsv(testId, "criteria", file);
-}
-export function uploadExamplesCsv(testId: string, file: File): Promise<Test> {
-  return uploadTestCsv(testId, "examples", file);
-}
-export function setGradingMethod(
-  testId: string,
-  questionId: string,
-  method: GradingMethod,
-): Promise<Question> {
-  return apiJson(
-    `${testPath(testId)}/questions/${encodeURIComponent(questionId)}/grading-method`,
-    { method: "PUT", body: JSON.stringify({ method }) },
-  );
 }
 export function createAttempt(testId: string): Promise<Attempt> {
   return apiJson(`${testPath(testId)}/attempts`, { method: "POST" });

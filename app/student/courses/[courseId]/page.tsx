@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { formatTestDate, useLocalTimezone } from "@/app/lib/testDates";
+import Breadcrumbs from "@/app/components/Breadcrumbs";
+import TestStatusBadge from "@/app/components/TestStatusBadge";
+import { testDisplayStatus } from "@/app/lib/testDates";
 import { use, useEffect, useState } from "react";
 import {
   GradingApiError,
@@ -17,7 +19,6 @@ export default function StudentCoursePage({
 }) {
   const { courseId } = use(params);
 
-  const timezone = useLocalTimezone();
   const [courseName, setCourseName] = useState<string | null>(null);
   const [tests, setTests] = useState<Test[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,12 +49,12 @@ export default function StudentCoursePage({
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-10">
-      <Link
-        href="/student"
-        className="text-sm text-brand-light hover:underline"
-      >
-        &larr; Back to courses
-      </Link>
+      <Breadcrumbs
+        items={[
+          { label: "Courses", href: "/student" },
+          { label: courseName ?? `Course #${courseId}` },
+        ]}
+      />
       <h1 className="mt-2 text-2xl font-semibold text-brand-dark">
         {courseName ?? `Course #${courseId}`}
       </h1>
@@ -68,21 +69,17 @@ export default function StudentCoursePage({
           <Link
             key={test.id}
             href={`/student/courses/${encodeURIComponent(courseId)}/tests/${encodeURIComponent(test.id)}`}
-            className="overflow-hidden rounded-lg border border-gray-300 bg-white shadow-sm transition hover:shadow-md"
+            className="cursor-pointer overflow-hidden rounded-lg border border-gray-300 bg-white shadow-sm transition hover:border-brand-light hover:shadow-md"
           >
             <div className="h-2 bg-brand-dark" />
             <div className="p-4">
-              <p className="font-semibold text-foreground">{test.test_name}</p>
+              <div className="flex items-start justify-between gap-2">
+                <p className="font-semibold text-foreground">{test.test_name}</p>
+                <TestStatusBadge status={testDisplayStatus(test)} />
+              </div>
               <p className="mt-1 text-xs uppercase tracking-wide text-foreground/50">
                 {test.questions.length} question(s) · max {test.max_attempts}{" "}
                 attempt(s)
-              </p>
-              <p className="mt-2 text-xs">
-                {test.is_closed ? "Closed" : "Open"} · Ends:{" "}
-                {formatTestDate(test.ends_at)} ({timezone})
-              </p>
-              <p className="mt-3 text-sm text-brand-light">
-                Open test and attempt history &rarr;
               </p>
             </div>
           </Link>

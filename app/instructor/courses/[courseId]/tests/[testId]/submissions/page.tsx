@@ -1,11 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { use, useEffect, useState } from "react";
+import Breadcrumbs from "@/app/components/Breadcrumbs";
+import ReloadButton from "@/app/components/ReloadButton";
+import { use, useEffect, useRef, useState } from "react";
+import { useToast } from "@/app/components/ToastProvider";
 import {
   StudentSubmissionSummary,
   Test,
   getTest,
+  listCourses,
   listSubmissions,
 } from "@/app/lib/gradingApi";
 import { formatTestDate } from "@/app/lib/testDates";
@@ -21,7 +25,28 @@ export default function SubmissionsPage({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [reload, setReload] = useState(0);
+  const [courseName, setCourseName] = useState<string | null>(null);
+  const toast = useToast();
+  // Set when the instructor clicks Reload; the next load result (not the 5s
+  // background poll) answers it with a success/failure toast.
+  const manualReload = useRef(false);
   const base = `/instructor/courses/${encodeURIComponent(courseId)}/tests/${encodeURIComponent(testId)}/submissions`;
+
+  // Course name for the breadcrumb trail only; failures leave the fallback label.
+  useEffect(() => {
+    let active = true;
+    listCourses()
+      .then((courses) => {
+        if (active)
+          setCourseName(
+            courses.find((course) => course.id === courseId)?.course_name ?? null,
+          );
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [courseId]);
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
@@ -36,11 +61,19 @@ export default function SubmissionsPage({
         setTest(details);
         setRows(submissions);
         setError(null);
+        if (manualReload.current) {
+          manualReload.current = false;
+          toast("Refreshed Submissions");
+        }
       } catch (err) {
         if (active)
           setError(
             err instanceof Error ? err.message : "Unable to load submissions.",
           );
+        if (active && manualReload.current) {
+          manualReload.current = false;
+          toast("Failed to refresh, check back later.", "error");
+        }
       } finally {
         if (active) {
           setLoading(false);
@@ -57,13 +90,21 @@ export default function SubmissionsPage({
   }, [testId, reload]);
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-10">
-      <Link
-        href={`/instructor/courses/${encodeURIComponent(courseId)}`}
-        className="text-sm text-brand-light hover:underline"
-      >
-        &larr; Back to course
-      </Link>
+    <div className="mx-auto max-w-5xl px-6 py-10">
+      <Breadcrumbs
+        items={[
+          { label: "Dashboard", href: "/instructor" },
+          {
+            label: courseName ?? `Course #${courseId}`,
+            href: `/instructor/courses/${encodeURIComponent(courseId)}`,
+          },
+          {
+            label: test?.test_name ?? "Test",
+            href: `/instructor/courses/${encodeURIComponent(courseId)}/tests/${encodeURIComponent(testId)}`,
+          },
+          { label: "Submissions" },
+        ]}
+      />
       <h1 className="mt-3 text-2xl font-semibold text-brand-dark">
         {test?.test_name ?? "Test"} submissions
       </h1>
@@ -71,12 +112,14 @@ export default function SubmissionsPage({
         Latest submitted attempt for each registered student. Unsubmitted
         attempts are excluded.
       </p>
-      <button
-        className="mt-3 text-sm text-brand-light underline"
-        onClick={() => setReload((value) => value + 1)}
-      >
-        Refresh submissions
-      </button>
+      <ReloadButton
+        className="mt-3"
+        label="Refresh submissions"
+        onClick={() => {
+          manualReload.current = true;
+          setReload((value) => value + 1);
+        }}
+      />
       {error && (
         <p role="alert" className="mt-4 text-sm text-red-700">
           {error}
@@ -135,7 +178,7 @@ export default function SubmissionsPage({
                 <td className="space-y-2 px-4 py-3">
                   {row.latest_submission && (
                     <Link
-                      className="block text-brand-light underline"
+                      className="block w-fit rounded bg-brand-light px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
                       href={`${base}/${encodeURIComponent(row.latest_submission.id)}`}
                     >
                       View latest submission
@@ -145,7 +188,7 @@ export default function SubmissionsPage({
                     row.latest_graded_submission.id !==
                       row.latest_submission?.id && (
                       <Link
-                        className="block text-brand-light underline"
+                        className="block w-fit rounded border border-brand-dark px-3 py-1.5 text-xs font-medium text-brand-dark transition-colors hover:bg-brand-dark hover:text-white"
                         href={`${base}/${encodeURIComponent(row.latest_graded_submission.id)}`}
                       >
                         Edit latest graded attempt (

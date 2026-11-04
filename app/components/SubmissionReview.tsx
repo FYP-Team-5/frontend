@@ -1,13 +1,17 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import Breadcrumbs, { type Crumb } from "./Breadcrumbs";
+import ReloadButton from "./ReloadButton";
+import { useToast } from "./ToastProvider";
 import {
   AttemptGradeResult,
   GradingApiError,
   editSubmission,
   getAttemptResult,
   getSubmission,
+  getTest,
+  listCourses,
   retryGrading,
 } from "@/app/lib/gradingApi";
 import { formatTestDate } from "@/app/lib/testDates";
@@ -65,6 +69,10 @@ export default function SubmissionReview({
   instructor?: boolean;
 }) {
   const [result, setResult] = useState<AttemptGradeResult | null>(null);
+  const toast = useToast();
+  // Set when the Reload button is clicked; the next completed load answers
+  // it with a success/failure toast instead of the silent background poll.
+  const manualReload = useRef(false);
   const [drafts, setDrafts] = useState<Drafts>({});
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -75,6 +83,52 @@ export default function SubmissionReview({
   const backHref = instructor
     ? `/instructor/courses/${encodeURIComponent(courseId)}/tests/${encodeURIComponent(testId)}/submissions`
     : `/student/courses/${encodeURIComponent(courseId)}/tests/${encodeURIComponent(testId)}`;
+  const [courseName, setCourseName] = useState<string | null>(null);
+  const [testName, setTestName] = useState<string | null>(null);
+
+  // Names for the breadcrumb trail only; failures leave the fallback labels.
+  useEffect(() => {
+    let active = true;
+    const controller = new AbortController();
+    Promise.allSettled([
+      listCourses(),
+      getTest(testId, controller.signal),
+    ]).then(([coursesResult, testResult]) => {
+      if (!active) return;
+      if (coursesResult.status === "fulfilled")
+        setCourseName(
+          coursesResult.value.find((course) => course.id === courseId)
+            ?.course_name ?? null,
+        );
+      if (testResult.status === "fulfilled") setTestName(testResult.value.test_name);
+    });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [courseId, testId]);
+
+  const coursePath = `${instructor ? "/instructor" : "/student"}/courses/${encodeURIComponent(courseId)}`;
+  const breadcrumbs: Crumb[] = [
+    ...(instructor
+      ? [
+          { label: "Dashboard", href: "/instructor" },
+          { label: courseName ?? `Course #${courseId}`, href: coursePath },
+          {
+            label: testName ?? "Test",
+            href: `${coursePath}/tests/${encodeURIComponent(testId)}`,
+          },
+          { label: "Submissions", href: backHref },
+        ]
+      : [
+          { label: "Courses", href: "/student" },
+          { label: courseName ?? `Course #${courseId}`, href: coursePath },
+          { label: testName ?? "Test", href: backHref },
+        ]),
+    {
+      label: result ? `Attempt ${result.attempt.attempt_number}` : "Attempt",
+    },
+  ];
 
   useEffect(() => {
     let active = true;
@@ -95,6 +149,10 @@ export default function SubmissionReview({
         setDrafts(draftsFor(data));
         setError(null);
         setConflict(false);
+        if (manualReload.current) {
+          manualReload.current = false;
+          toast(instructor ? "Refreshed submission review" : "Refreshed your submission");
+        }
         if (data.attempt.status === "grading") timer = setTimeout(load, 1500);
       } catch (err) {
         if (!active) return;
@@ -103,6 +161,10 @@ export default function SubmissionReview({
             ? err.message
             : "Unable to check submission status.",
         );
+        if (manualReload.current) {
+          manualReload.current = false;
+          toast("Failed to refresh, check back later.", "error");
+        }
         // Connection errors do not change the persisted submission status.
         if (!(err instanceof GradingApiError) || err.status >= 500)
           timer = setTimeout(load, 5000);
@@ -133,9 +195,13 @@ export default function SubmissionReview({
     try {
       await retryGrading(testId, attemptId);
       setMessage("Grading queued again using your saved answers.");
+      toast("Grading re-queued using your saved answers.");
       setReload((value) => value + 1);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to retry grading.");
+      const message =
+        err instanceof Error ? err.message : "Unable to retry grading.";
+      setError(message);
+      toast(message, "error");
     } finally {
       setBusy(false);
     }
@@ -198,8 +264,12 @@ export default function SubmissionReview({
       setResult(updated);
       setDrafts(draftsFor(updated));
       setMessage("Scores and feedback saved.");
+      toast("Scores and feedback saved.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to save grades.");
+      const message =
+        err instanceof Error ? err.message : "Unable to save grades.";
+      setError(message);
+      toast(message, "error");
       if (
         err instanceof GradingApiError &&
         err.status === 409 &&
@@ -212,19 +282,28 @@ export default function SubmissionReview({
   }
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-10">
-      <Link
-        className="text-sm text-brand-light hover:underline"
-        href={backHref}
-      >
-        &larr;{" "}
-        {instructor
-          ? "Back to submissions"
-          : "Back to test and attempt history"}
-      </Link>
-      <h1 className="mt-3 text-2xl font-semibold text-brand-dark">
-        {instructor ? "Submission review" : "Your submission"}
-      </h1>
+    <div className="mx-auto max-w-5xl px-6 py-10">
+      <Breadcrumbs items={breadcrumbs} />
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold text-brand-dark">
+          {instructor ? "Submission review" : "Your submission"}
+        </h1>
+        <ReloadButton
+          label="Reload status and grades"
+          disabled={busy}
+          onClick={() => {
+            if (
+              instructor &&
+              result &&
+              JSON.stringify(drafts) !== JSON.stringify(draftsFor(result)) &&
+              !window.confirm("Discard unsaved edits and reload grades?")
+            )
+              return;
+            manualReload.current = true;
+            setReload((value) => value + 1);
+          }}
+        />
+      </div>
       {loading && (
         <p role="status" className="mt-4">
           Loading submission...
@@ -240,26 +319,10 @@ export default function SubmissionReview({
           {message}
         </p>
       )}
-      <button
-        onClick={() => {
-          if (
-            instructor &&
-            result &&
-            JSON.stringify(drafts) !== JSON.stringify(draftsFor(result)) &&
-            !window.confirm("Discard unsaved edits and reload grades?")
-          )
-            return;
-          setReload((value) => value + 1);
-        }}
-        disabled={busy}
-        className="mt-3 text-sm text-brand-light underline disabled:opacity-50"
-      >
-        Reload status and grades
-      </button>
       {result && (
         <>
           <section
-            className="mt-5 rounded-lg border border-gray-300 bg-white p-5"
+            className="mt-5 rounded-lg border border-brand-light/30 bg-brand-light/10 p-5"
             aria-live="polite"
           >
             <p className="font-semibold">
@@ -310,7 +373,7 @@ export default function SubmissionReview({
                   <button
                     onClick={retry}
                     disabled={busy}
-                    className="mt-3 rounded bg-brand-light px-4 py-2 text-sm text-white disabled:opacity-50"
+                    className="mt-3 rounded bg-brand-light px-4 py-2 text-sm text-white disabled:opacity-50 transition-colors hover:bg-brand-dark transition-colors hover:bg-brand-dark"
                   >
                     {busy ? "Queuing..." : "Retry grading saved answers"}
                   </button>
@@ -329,52 +392,57 @@ export default function SubmissionReview({
               const response = result.responses.find(
                 (item) => item.question_id === question.id,
               );
-              return (
-                <section
+              return response && instructor && result.can_edit ? (
+                /* Instructor editing: answer card and edit card as aligned siblings. */
+                <div
                   key={question.id}
-                  className="rounded-lg border border-gray-300 bg-white p-5"
+                  className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2"
                 >
-                  <h2 className="text-sm font-semibold">
-                    {index + 1}. {question.prompt}
-                  </h2>
-                  <p className="mt-3 text-xs font-medium text-foreground/60">
-                    Submitted answer
-                  </p>
-                  <p className="mt-1 whitespace-pre-wrap text-sm">
-                    {response?.answer ?? "No answer submitted."}
-                  </p>
-                  {response && (
-                    <>
-                      <p className="mt-3 text-sm">
-                        Score: {response.score ?? "Pending"} /{" "}
-                        {question.max_score}
-                      </p>
-                      {response.overridden && (
-                        <p className="mt-1 text-xs text-brand-light">
-                          Updated by instructor
-                          {response.edited_at
-                            ? ` · ${formatTestDate(response.edited_at)}`
-                            : ""}
+                  <section className="rounded-lg border border-gray-300 bg-white p-5">
+                    <h2 className="text-sm font-semibold">
+                      {index + 1}. {question.prompt}
+                    </h2>
+                    <p className="mt-3 text-xs font-medium uppercase tracking-wide text-foreground/50">
+                      Student answer
+                    </p>
+                        <p className="mt-2 whitespace-pre-wrap text-sm">
+                          {response.answer || "No answer submitted."}
                         </p>
-                      )}
-                      {instructor && response.overridden && (
-                        <p className="mt-2 text-xs text-foreground/60">
-                          Original automated score: {response.original_score}
-                          <br />
-                          Original feedback: {response.original_feedback}
-                        </p>
-                      )}
-                      {instructor && result.can_edit ? (
-                        <div className="mt-4 space-y-3">
+                        <div className="mt-3 border-t border-gray-200 pt-3">
+                          <p className="text-sm">
+                            Score: {response.score ?? "Pending"} /{" "}
+                            {question.max_score}
+                          </p>
+                          {response.overridden && (
+                            <p className="mt-1 text-xs text-brand-light">
+                              Updated by instructor
+                              {response.edited_at
+                                ? ` · ${formatTestDate(response.edited_at)}`
+                                : ""}
+                            </p>
+                          )}
+                          {response.overridden && (
+                            <p className="mt-2 text-xs text-foreground/60">
+                              Original automated score:{" "}
+                              {response.original_score}
+                              <br />
+                              Original feedback: {response.original_feedback}
+                            </p>
+                          )}
+                      </div>
+                  </section>
+                  <section className="space-y-3 rounded-lg border border-gray-300 bg-white p-5">
+                    <p className="text-xs font-medium uppercase tracking-wide text-foreground/50">
+                      Instructor score &amp; feedback
+                    </p>
                           {question.rubric && (
                             <fieldset className="space-y-3 rounded border border-gray-200 p-3">
                               <legend className="px-1 text-sm font-medium">
                                 Rubric criterion scores
                               </legend>
                               <p className="text-xs text-foreground/60">
-                                For CSV training export, criterion scores must
-                                match the total. Changing all criterion scores
-                                updates the total automatically.
+                                The total score is calculated automatically as
+                                the sum of these criterion scores.
                               </p>
                               {question.rubric.criteria.map(
                                 (criterion, criterionIndex) => (
@@ -402,31 +470,19 @@ export default function SubmissionReview({
                                             ...previous[response.id].criteria,
                                             [criterion.id]: event.target.value,
                                           };
-                                          const complete = Object.values(
+                                          const total = Object.values(
                                             criteria,
-                                          ).every(
-                                            (value) =>
-                                              value.trim() &&
-                                              Number.isFinite(Number(value)),
+                                          ).reduce(
+                                            (sum, value) =>
+                                              sum + (Number(value) || 0),
+                                            0,
                                           );
                                           return {
                                             ...previous,
                                             [response.id]: {
                                               ...previous[response.id],
                                               criteria,
-                                              ...(complete
-                                                ? {
-                                                    score: String(
-                                                      Object.values(
-                                                        criteria,
-                                                      ).reduce(
-                                                        (total, value) =>
-                                                          total + Number(value),
-                                                        0,
-                                                      ),
-                                                    ),
-                                                  }
-                                                : {}),
+                                              score: String(total),
                                             },
                                           };
                                         })
@@ -438,29 +494,39 @@ export default function SubmissionReview({
                               )}
                             </fieldset>
                           )}
-                          <label className="block text-sm">
-                            Score (increments of {question.score_increment})
-                            <input
-                              aria-label={`Score for question ${index + 1}`}
-                              type="number"
-                              required
-                              min={0}
-                              max={question.max_score}
-                              step={question.score_increment}
-                              disabled={busy || conflict}
-                              value={drafts[response.id]?.score ?? ""}
-                              onChange={(event) =>
-                                setDrafts((previous) => ({
-                                  ...previous,
-                                  [response.id]: {
-                                    ...previous[response.id],
-                                    score: event.target.value,
-                                  },
-                                }))
-                              }
-                              className="mt-1 block w-32 rounded border border-gray-300 p-2"
-                            />
-                          </label>
+                          {question.rubric ? (
+                            <p className="text-sm">
+                              Total (sums automatically from criteria):{" "}
+                              <span className="font-semibold">
+                                {Number(drafts[response.id]?.score) || 0}
+                              </span>{" "}
+                              / {question.max_score}
+                            </p>
+                          ) : (
+                            <label className="block text-sm">
+                              Score (increments of {question.score_increment})
+                              <input
+                                aria-label={`Score for question ${index + 1}`}
+                                type="number"
+                                required
+                                min={0}
+                                max={question.max_score}
+                                step={question.score_increment}
+                                disabled={busy || conflict}
+                                value={drafts[response.id]?.score ?? ""}
+                                onChange={(event) =>
+                                  setDrafts((previous) => ({
+                                    ...previous,
+                                    [response.id]: {
+                                      ...previous[response.id],
+                                      score: event.target.value,
+                                    },
+                                  }))
+                                }
+                                className="mt-1 block w-32 rounded border border-gray-300 p-2"
+                              />
+                            </label>
+                          )}
                           <label className="block text-sm">
                             Feedback
                             <textarea
@@ -481,23 +547,60 @@ export default function SubmissionReview({
                               className="mt-1 w-full rounded border border-gray-300 p-2"
                             />
                           </label>
-                        </div>
-                      ) : (
-                        response.feedback && (
-                          <p className="mt-3 whitespace-pre-wrap text-sm text-foreground/80">
-                            {response.feedback}
+                  </section>
+                </div>
+              ) : (
+                <section
+                  key={question.id}
+                  className="rounded-lg border border-gray-300 bg-white p-5"
+                >
+                  <h2 className="text-sm font-semibold">
+                    {index + 1}. {question.prompt}
+                  </h2>
+                    <>
+                      <p className="mt-3 text-xs font-medium text-foreground/60">
+                        Submitted answer
+                      </p>
+                      <p className="mt-1 whitespace-pre-wrap text-sm">
+                        {response?.answer ?? "No answer submitted."}
+                      </p>
+                      {response && (
+                        <>
+                          <p className="mt-3 text-sm">
+                            Score: {response.score ?? "Pending"} /{" "}
+                            {question.max_score}
                           </p>
-                        )
+                          {response.overridden && (
+                            <p className="mt-1 text-xs text-brand-light">
+                              Updated by instructor
+                              {response.edited_at
+                                ? ` · ${formatTestDate(response.edited_at)}`
+                                : ""}
+                            </p>
+                          )}
+                          {instructor && response.overridden && (
+                            <p className="mt-2 text-xs text-foreground/60">
+                              Original automated score:{" "}
+                              {response.original_score}
+                              <br />
+                              Original feedback: {response.original_feedback}
+                            </p>
+                          )}
+                          {response.feedback && (
+                            <p className="mt-3 whitespace-pre-wrap text-sm text-foreground/80">
+                              {response.feedback}
+                            </p>
+                          )}
+                        </>
                       )}
                     </>
-                  )}
                 </section>
               );
             })}
             {instructor && result.can_edit && (
               <button
                 disabled={busy || conflict}
-                className="rounded bg-brand-light px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50"
+                className="rounded bg-brand-light px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50 transition-colors hover:bg-brand-dark transition-colors hover:bg-brand-dark"
               >
                 {busy ? "Saving..." : "Save scores and feedback"}
               </button>

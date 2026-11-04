@@ -30,9 +30,9 @@ export default function StudentDashboard() {
           <Link
             key={course.id}
             href={`/student/courses/${encodeURIComponent(course.id)}`}
-            className="overflow-hidden rounded-lg border border-gray-300 bg-white shadow-sm transition hover:shadow-md"
+            className="cursor-pointer overflow-hidden rounded-lg border border-gray-300 bg-white shadow-sm transition hover:border-brand-light hover:shadow-md"
           >
-            <div className="h-16 border-b border-gray-300 bg-white" />
+            <div className="h-2 bg-brand-dark" />
             <div className="p-4">
               <p className="font-semibold text-foreground">{course.course_name}</p>
               <p className="mt-1 text-xs uppercase tracking-wide text-foreground/50">

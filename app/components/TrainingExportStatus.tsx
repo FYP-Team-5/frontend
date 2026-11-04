@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useToast } from "./ToastProvider";
 import {
   TrainingExport,
   getTrainingExport,
@@ -19,6 +20,7 @@ export default function TrainingExportStatus({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [reload, setReload] = useState(0);
+  const toast = useToast();
   useEffect(() => {
     let active = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -60,9 +62,13 @@ export default function TrainingExportStatus({
     setBusy(true);
     try {
       await retryTrainingExport(testId);
+      toast("Training export retry queued.");
       setReload((value) => value + 1);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to retry export.");
+      const message =
+        err instanceof Error ? err.message : "Unable to retry export.";
+      setError(message);
+      toast(message, "error");
     } finally {
       setBusy(false);
     }
@@ -110,7 +116,7 @@ export default function TrainingExportStatus({
         <button
           onClick={retry}
           disabled={busy}
-          className="mt-2 text-brand-light underline disabled:opacity-50"
+          className="mt-2 inline-flex rounded border border-brand-dark px-3 py-1.5 text-xs font-medium text-brand-dark transition-colors hover:bg-brand-dark hover:text-white disabled:opacity-50"
         >
           {busy ? "Queuing..." : "Retry training export"}
         </button>
