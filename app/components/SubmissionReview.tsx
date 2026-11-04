@@ -373,7 +373,7 @@ export default function SubmissionReview({
                   <button
                     onClick={retry}
                     disabled={busy}
-                    className="mt-3 rounded bg-brand-light px-4 py-2 text-sm text-white disabled:opacity-50 transition-colors hover:bg-brand-dark transition-colors hover:bg-brand-dark"
+                    className="mt-3 rounded bg-brand-light px-4 py-2 text-sm text-white disabled:opacity-50 transition-colors hover:bg-brand-dark"
                   >
                     {busy ? "Queuing..." : "Retry grading saved answers"}
                   </button>
@@ -600,7 +600,7 @@ export default function SubmissionReview({
             {instructor && result.can_edit && (
               <button
                 disabled={busy || conflict}
-                className="rounded bg-brand-light px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50 transition-colors hover:bg-brand-dark transition-colors hover:bg-brand-dark"
+                className="rounded bg-brand-light px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50 transition-colors hover:bg-brand-dark"
               >
                 {busy ? "Saving..." : "Save scores and feedback"}
               </button>

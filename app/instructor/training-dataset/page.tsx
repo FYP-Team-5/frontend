@@ -240,7 +240,7 @@ export default function TrainingDatasetPage() {
           <button
             disabled={busy || !active}
             onClick={() => download()}
-            className="rounded bg-brand-light px-4 py-2 text-sm text-white disabled:opacity-50 transition-colors hover:bg-brand-dark transition-colors hover:bg-brand-dark"
+            className="rounded bg-brand-light px-4 py-2 text-sm text-white disabled:opacity-50 transition-colors hover:bg-brand-dark"
           >
             Download latest CSV
           </button>

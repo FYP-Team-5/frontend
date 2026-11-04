@@ -263,29 +263,34 @@ export default function TakeTestPage({
                 No attempts yet.
               </p>
             ) : (
-              <ul className="mt-3 space-y-3">
+              <ul className="mt-4 space-y-4">
                 {[...attempts].reverse().map((item) => (
                   <li
                     key={item.id}
-                    className="flex flex-wrap items-center justify-between gap-2 text-sm"
+                    className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-gray-200 bg-brand-soft/60 px-5 py-4"
                   >
-                    <span>
-                      Attempt {item.attempt_number} ·{" "}
-                      {item.status.replaceAll("_", " ")}
-                      <br />
-                      <span className="text-xs text-foreground/60">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-semibold text-brand-dark">
+                          Attempt {item.attempt_number}
+                        </span>
+                        <span className="rounded-full bg-white px-2.5 py-0.5 text-xs font-medium capitalize text-brand-dark ring-1 ring-gray-200">
+                          {item.status.replaceAll("_", " ")}
+                        </span>
+                      </div>
+                      <p className="mt-1.5 text-xs text-foreground/60">
                         {item.submitted_at
                           ? `Submitted ${formatTestDate(item.submitted_at)}`
                           : "Not submitted"}
-                      </span>
-                    </span>
+                      </p>
+                    </div>
                     {item.submitted_at && (
                       <Link
-                        className="rounded bg-brand-light px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition-colors hover:bg-brand-dark"
+                        className="rounded bg-brand-light px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-dark"
                         href={resultHref(item.id)}
                       >
                         {item.status === "graded"
-                          ? "View grades and feedback"
+                          ? "View submission"
                           : "View submission status"}
                       </Link>
                     )}
@@ -298,7 +303,7 @@ export default function TakeTestPage({
             <button
               onClick={start}
               disabled={busy || attempts.length >= test.max_attempts}
-              className="mt-6 rounded bg-brand-light px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50 transition-colors hover:bg-brand-dark transition-colors hover:bg-brand-dark"
+              className="mt-6 rounded bg-brand-light px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50 transition-colors hover:bg-brand-dark"
             >
               {busy
                 ? "Starting..."
@@ -344,7 +349,7 @@ export default function TakeTestPage({
               ))}
               <button
                 disabled={busy}
-                className="rounded bg-brand-light px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50 transition-colors hover:bg-brand-dark transition-colors hover:bg-brand-dark"
+                className="rounded bg-brand-light px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50 transition-colors hover:bg-brand-dark"
               >
                 {busy ? "Submitting..." : "Submit for grading"}
               </button>
