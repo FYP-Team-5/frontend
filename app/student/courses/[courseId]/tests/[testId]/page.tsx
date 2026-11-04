@@ -7,12 +7,9 @@ import { useRouter } from "next/navigation";
 import { use, useEffect, useState } from "react";
 import {
   Attempt,
-  GradingApiError,
   Test,
   createAttempt,
-  getAttemptResult,
   getTest,
-  gradeAttempt,
   listAttempts,
   listCourses,
 } from "@/app/lib/gradingApi";
@@ -33,8 +30,6 @@ export default function TakeTestPage({
   const timezone = useLocalTimezone();
   const [test, setTest] = useState<Test | null>(null);
   const [attempts, setAttempts] = useState<Attempt[]>([]);
-  const [attempt, setAttempt] = useState<Attempt | null>(null);
-  const [answers, setAnswers] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [closed, setClosed] = useState(false);
@@ -43,28 +38,19 @@ export default function TakeTestPage({
   const backHref = `/student/courses/${encodeURIComponent(courseId)}`;
   const resultHref = (id: string) =>
     `${backHref}/tests/${encodeURIComponent(testId)}/attempts/${encodeURIComponent(id)}`;
+  // Unsubmitted attempt the student can pick back up on its own page.
+  const unfinished = attempts.findLast(
+    (item) => item.status === "in_progress",
+  );
 
   useEffect(() => {
     let active = true;
     Promise.all([getTest(testId), listAttempts(testId)])
-      .then(async ([details, history]) => {
+      .then(([details, history]) => {
         if (!active) return;
         setTest(details);
         setClosed(details.is_closed);
         setAttempts(history);
-        const unfinished = history.findLast(
-          (item) => item.status === "in_progress",
-        );
-        if (unfinished) {
-          const saved = await getAttemptResult(testId, unfinished.id);
-          if (!active) return;
-          setAttempt(unfinished);
-          setAnswers(
-            Object.fromEntries(
-              saved.responses.map((item) => [item.question_id, item.answer]),
-            ),
-          );
-        }
       })
       .catch((err) => {
         if (active)
@@ -160,46 +146,9 @@ export default function TakeTestPage({
     setError(null);
     try {
       const created = await createAttempt(testId);
-      setAttempt(created);
-      setAttempts((previous) =>
-        previous.some((item) => item.id === created.id)
-          ? previous
-          : [...previous, created],
-      );
+      router.push(resultHref(created.id));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start attempt.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    if (!test || !attempt) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await gradeAttempt(testId, attempt.id, {
-        responses: test.questions.map((question) => ({
-          question_id: question.id,
-          answer: answers[question.id] ?? "",
-        })),
-      });
-      router.push(resultHref(attempt.id));
-    } catch (err) {
-      setError(
-        err instanceof GradingApiError
-          ? err.message
-          : "Could not confirm submission. Check your attempt history before trying again.",
-      );
-      const history = await listAttempts(testId).catch(() => null);
-      if (history) {
-        setAttempts(history);
-        const accepted = history.find(
-          (item) => item.id === attempt.id && item.status !== "in_progress",
-        );
-        if (accepted) router.push(resultHref(accepted.id));
-      }
     } finally {
       setBusy(false);
     }
@@ -284,22 +233,41 @@ export default function TakeTestPage({
                           : "Not submitted"}
                       </p>
                     </div>
-                    {item.submitted_at && (
-                      <Link
-                        className="rounded bg-brand-light px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-dark"
-                        href={resultHref(item.id)}
-                      >
-                        {item.status === "graded"
-                          ? "View submission"
-                          : "View submission status"}
-                      </Link>
+                    {item.status === "in_progress" ? (
+                      !closed && (
+                        <Link
+                          className="rounded bg-brand-light px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-dark"
+                          href={resultHref(item.id)}
+                        >
+                          Continue attempt
+                        </Link>
+                      )
+                    ) : (
+                      item.submitted_at && (
+                        <Link
+                          className="rounded bg-brand-light px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-dark"
+                          href={resultHref(item.id)}
+                        >
+                          {item.status === "graded"
+                            ? "View submission"
+                            : "View submission status"}
+                        </Link>
+                      )
                     )}
                   </li>
                 ))}
               </ul>
             )}
           </section>
-          {!closed && !attempt && (
+          {!closed && unfinished && (
+            <Link
+              href={resultHref(unfinished.id)}
+              className="mt-6 inline-block rounded bg-brand-light px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-brand-dark"
+            >
+              Continue attempt {unfinished.attempt_number}
+            </Link>
+          )}
+          {!closed && !unfinished && (
             <button
               onClick={start}
               disabled={busy || attempts.length >= test.max_attempts}
@@ -311,53 +279,6 @@ export default function TakeTestPage({
                   ? "Attempt limit reached"
                   : "Start attempt"}
             </button>
-          )}
-          {!closed && attempt && (
-            <form onSubmit={submit} className="mt-6 space-y-5">
-              <h2 className="text-lg font-semibold">
-                Attempt {attempt.attempt_number}
-              </h2>
-              {test.questions.map((question, index) => (
-                <div
-                  key={question.id}
-                  className="rounded-lg border border-gray-300 bg-white p-5"
-                >
-                  <label
-                    className="block text-sm font-medium"
-                    htmlFor={question.id}
-                  >
-                    {index + 1}. {question.prompt}
-                  </label>
-                  <p className="mt-1 text-xs text-foreground/60">
-                    Max score: {question.max_score}
-                  </p>
-                  <textarea
-                    id={question.id}
-                    required
-                    disabled={busy}
-                    rows={5}
-                    value={answers[question.id] ?? ""}
-                    onChange={(event) =>
-                      setAnswers((previous) => ({
-                        ...previous,
-                        [question.id]: event.target.value,
-                      }))
-                    }
-                    className="mt-3 w-full rounded border border-gray-300 p-3 text-sm disabled:opacity-60"
-                  />
-                </div>
-              ))}
-              <button
-                disabled={busy}
-                className="rounded bg-brand-light px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50 transition-colors hover:bg-brand-dark"
-              >
-                {busy ? "Submitting..." : "Submit for grading"}
-              </button>
-              <p className="text-xs text-foreground/60">
-                After submission is accepted, you can leave and return later to
-                see your grades.
-              </p>
-            </form>
           )}
         </>
       )}
