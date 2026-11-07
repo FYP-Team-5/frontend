@@ -91,6 +91,12 @@ export default function InstructorDashboard() {
           </p>
         </div>
         <Link
+          href="/instructor/training-models"
+          className="rounded border border-brand-dark px-4 py-2 text-sm font-medium text-brand-dark transition-colors hover:bg-brand-dark hover:text-white"
+        >
+          Trained models
+        </Link>
+        <Link
           href="/instructor/training-dataset"
           className="rounded border border-brand-dark px-4 py-2 text-sm font-medium text-brand-dark transition-colors hover:bg-brand-dark hover:text-white"
         >

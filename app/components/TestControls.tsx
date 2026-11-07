@@ -1,7 +1,7 @@
 "use client";
 
 import TrainingExportStatus from "./TrainingExportStatus";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useToast } from "./ToastProvider";
 import { Test, endTest, setTestDeadline } from "@/app/lib/gradingApi";
 import { localDateInput, useLocalTimezone } from "@/app/lib/testDates";
@@ -15,6 +15,15 @@ export default function TestControls({
   courseId: string;
   onUpdated: (test: Test) => void;
 }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!test.ends_at || test.ended_at) return;
+    const deadline = Date.parse(test.ends_at);
+    if (now >= deadline) return;
+    const delay = Math.min(Math.max(0, deadline - Date.now()), 2_147_483_647);
+    const timer = setTimeout(() => setNow(Date.now()), delay);
+    return () => clearTimeout(timer);
+  }, [test.ends_at, test.ended_at, now]);
   const timezone = useLocalTimezone();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
@@ -23,7 +32,7 @@ export default function TestControls({
   // An upcoming test is not open yet, but stays administratively editable.
   const ended =
     test.ended_at !== null ||
-    (test.ends_at !== null && Date.now() >= Date.parse(test.ends_at));
+    (test.ends_at !== null && now >= Date.parse(test.ends_at));
   async function closeTest() {
     if (
       !window.confirm(
@@ -37,7 +46,8 @@ export default function TestControls({
       onUpdated(await endTest(test.id));
       toast(`"${test.test_name}" ended. Training export will collect results.`);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unable to end test.";
+      const message =
+        err instanceof Error ? err.message : "Unable to end test.";
       setError(message);
       toast(message, "error");
     } finally {
