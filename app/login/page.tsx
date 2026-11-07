@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { login, ApiError } from "../lib/api";
 import { setSession } from "../lib/session";
+import Breadcrumbs from "../components/Breadcrumbs";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -29,6 +30,7 @@ export default function LoginPage() {
 
   return (
     <div className="mx-auto max-w-md px-6 py-16">
+      <Breadcrumbs items={[{ label: "Login" }]} />
       <div className="rounded-lg border border-black/10 bg-white p-8 shadow-sm">
         <h1 className="text-xl font-semibold text-brand-dark">Login</h1>
         <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-4">

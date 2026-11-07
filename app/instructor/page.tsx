@@ -8,6 +8,7 @@ import {
   GradingApiError,
   listCourses,
 } from "../lib/gradingApi";
+import Breadcrumbs from "../components/Breadcrumbs";
 
 const inputClass =
   "mt-1 w-full rounded border border-black/15 px-3 py-2 text-sm outline-none focus:border-brand-light focus:ring-1 focus:ring-brand-light";
@@ -81,6 +82,7 @@ export default function InstructorDashboard() {
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-10">
+      <Breadcrumbs items={[{ label: "Dashboard" }]} />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-brand-dark">

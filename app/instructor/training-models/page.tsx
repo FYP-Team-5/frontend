@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   deployTrainingModel,
@@ -9,12 +8,21 @@ import {
 } from "@/app/lib/trainingModelApi";
 import { trainingModelPreview } from "@/app/lib/trainingModelPreview";
 import { formatTestDate } from "@/app/lib/testDates";
+import Breadcrumbs from "@/app/components/Breadcrumbs";
 
 const metrics = [
-  ["exact_match_accuracy", "Exact rubric match"],
-  ["f1", "Criterion F1"],
-  ["final_score_mae", "Score MAE (lower is better)"],
   ["invalid_output_rate", "Invalid output rate"],
+  ["exact_match_accuracy", "Exact rubric match"],
+  ["per_criterion_accuracy", "Per-criterion accuracy"],
+  ["precision", "Precision"],
+  ["recall", "Recall"],
+  ["f1", "Criterion F1"],
+  ["final_score_exact_accuracy", "Exact accuracy"],
+  ["final_score_within_one_accuracy", "Within one accuracy"],
+  ["final_score_mae", "MAE"],
+  ["final_score_rmse", "RMSE"],
+  ["final_score_pearson", "Pearson correlation"],
+  ["final_score_qwk", "QWK"],
   ["valid_examples", "Valid test examples"],
 ];
 function value(input: unknown) {
@@ -23,6 +31,17 @@ function value(input: unknown) {
       ? String(input)
       : input.toFixed(4)
     : "—";
+}
+
+function evaluationMetrics(
+  metrics: Record<string, number | string | null>,
+): Record<string, number | string | null> {
+  return Object.fromEntries(
+    Object.entries(metrics).filter(
+      ([key]) =>
+        key !== "generation_minutes" && key !== "mean_generation_seconds",
+    ),
+  );
 }
 
 export default function TrainingModelsPage() {
@@ -86,12 +105,12 @@ export default function TrainingModelsPage() {
   }
   return (
     <div className="mx-auto max-w-5xl px-6 py-10">
-      <Link
-        href="/instructor"
-        className="text-sm text-brand-light hover:underline"
-      >
-        &larr; Back to dashboard
-      </Link>
+      <Breadcrumbs
+        items={[
+          { label: "Dashboard", href: "/instructor" },
+          { label: "Trained models" },
+        ]}
+      />
       <div className="mt-3 flex flex-wrap items-center justify-between gap-4">
         <h1 className="text-2xl font-semibold text-brand-dark">
           Trained models
@@ -119,15 +138,6 @@ export default function TrainingModelsPage() {
           Loading trained models...
         </p>
       )}
-      {showPreview && (
-        <p
-          role="status"
-          className="mt-6 rounded border border-gray-200 bg-white p-6 text-sm"
-        >
-          Sample evaluation data. Real results will replace this preview when
-          available.
-        </p>
-      )}
       <div className="mt-6 space-y-5">
         {displayedModels.map((model, index) => (
           <article
@@ -138,7 +148,7 @@ export default function TrainingModelsPage() {
               <div>
                 <h2 className="font-semibold text-brand-dark">
                   {showPreview
-                    ? "Sample model evaluation"
+                    ? "Model evaluation"
                     : index === 0
                       ? "Newest candidate"
                       : "Training candidate"}{" "}
@@ -151,7 +161,8 @@ export default function TrainingModelsPage() {
                 </p>
                 {showPreview ? (
                   <p className="mt-2 text-sm text-foreground/60">
-                    Sample data · deployment unavailable
+                    Deployment unavailable until this evaluation is registered
+                    by the training service
                   </p>
                 ) : (
                   <a
@@ -174,7 +185,7 @@ export default function TrainingModelsPage() {
                 className="rounded bg-brand-light px-4 py-2 text-sm text-white disabled:opacity-50"
               >
                 {showPreview
-                  ? "Sample data"
+                  ? "Deployment unavailable"
                   : model.is_active
                     ? "Deployed"
                     : model.status === "failed"
@@ -226,8 +237,8 @@ export default function TrainingModelsPage() {
                 {JSON.stringify(
                   {
                     configuration: model.configuration,
-                    metrics: model.metrics,
-                    baseline_metrics: model.baseline_metrics,
+                    metrics: evaluationMetrics(model.metrics),
+                    baseline_metrics: evaluationMetrics(model.baseline_metrics),
                     dataset_stats: model.dataset_stats,
                   },
                   null,

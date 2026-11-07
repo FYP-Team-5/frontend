@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { registerStudent, registerStaff, ApiError } from "../lib/api";
+import Breadcrumbs from "../components/Breadcrumbs";
 
 const inputClass =
   "mt-1 w-full rounded border border-black/15 px-3 py-2 text-sm outline-none focus:border-brand-light focus:ring-1 focus:ring-brand-light";
@@ -52,6 +53,7 @@ export default function RegisterPage() {
 
   return (
     <div className="mx-auto max-w-md px-6 py-16">
+      <Breadcrumbs items={[{ label: "Register" }]} />
       <div className="rounded-lg border border-black/10 bg-white p-8 shadow-sm">
         <h1 className="text-xl font-semibold text-brand-dark">Register</h1>
 
