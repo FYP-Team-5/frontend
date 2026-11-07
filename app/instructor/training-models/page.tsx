@@ -7,6 +7,7 @@ import {
   listTrainingModels,
   TrainingModel,
 } from "@/app/lib/trainingModelApi";
+import { trainingModelPreview } from "@/app/lib/trainingModelPreview";
 import { formatTestDate } from "@/app/lib/testDates";
 
 const metrics = [
@@ -61,11 +62,13 @@ export default function TrainingModelsPage() {
       clearTimeout(timer);
     };
   }, [refresh]);
+  const showPreview = !loading && models.length === 0;
+  const displayedModels = showPreview ? trainingModelPreview : models;
   const deploying = models.some(
     (model) => model.status === "queued" || model.status === "deploying",
   );
   async function deploy() {
-    if (!selected) return;
+    if (!selected || showPreview) return;
     setBusy(true);
     try {
       await deployTrainingModel(selected);
@@ -116,13 +119,17 @@ export default function TrainingModelsPage() {
           Loading trained models...
         </p>
       )}
-      {!loading && models.length === 0 && (
-        <p className="mt-6 rounded border border-gray-200 bg-white p-6 text-sm">
-          No evaluated candidates have been reported yet.
+      {showPreview && (
+        <p
+          role="status"
+          className="mt-6 rounded border border-gray-200 bg-white p-6 text-sm"
+        >
+          Sample evaluation data. Real results will replace this preview when
+          available.
         </p>
       )}
       <div className="mt-6 space-y-5">
-        {models.map((model, index) => (
+        {displayedModels.map((model, index) => (
           <article
             key={model.run_id}
             className="rounded-lg border border-gray-300 bg-white p-5"
@@ -130,37 +137,49 @@ export default function TrainingModelsPage() {
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <h2 className="font-semibold text-brand-dark">
-                  {index === 0 ? "Newest candidate" : "Training candidate"} ·{" "}
-                  {formatTestDate(model.completed_at)}
+                  {showPreview
+                    ? "Sample model evaluation"
+                    : index === 0
+                      ? "Newest candidate"
+                      : "Training candidate"}{" "}
+                  · {formatTestDate(model.completed_at)}
                 </h2>
                 <p className="mt-1 text-sm">
                   {model.is_active
                     ? "Active for new rubric submissions"
                     : model.status}
                 </p>
-                <a
-                  className="mt-2 inline-block text-sm text-brand-light underline"
-                  href={`https://huggingface.co/${model.hf_repo}/tree/${model.hf_revision}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  View pinned Hugging Face version
-                </a>
+                {showPreview ? (
+                  <p className="mt-2 text-sm text-foreground/60">
+                    Sample data · deployment unavailable
+                  </p>
+                ) : (
+                  <a
+                    className="mt-2 inline-block text-sm text-brand-light underline"
+                    href={`https://huggingface.co/${model.hf_repo}/tree/${model.hf_revision}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    View pinned Hugging Face version
+                  </a>
+                )}
                 <p className="mt-1 break-all text-xs text-foreground/60">
                   Dataset: {model.dataset_version} · Commit:{" "}
                   {model.hf_revision.slice(0, 12)}
                 </p>
               </div>
               <button
-                disabled={busy || deploying || model.is_active}
+                disabled={busy || deploying || model.is_active || showPreview}
                 onClick={() => setSelected(model)}
                 className="rounded bg-brand-light px-4 py-2 text-sm text-white disabled:opacity-50"
               >
-                {model.is_active
-                  ? "Deployed"
-                  : model.status === "failed"
-                    ? "Retry deployment"
-                    : "Deploy this version"}
+                {showPreview
+                  ? "Sample data"
+                  : model.is_active
+                    ? "Deployed"
+                    : model.status === "failed"
+                      ? "Retry deployment"
+                      : "Deploy this version"}
               </button>
             </div>
             <div className="mt-4 overflow-x-auto">
@@ -219,7 +238,7 @@ export default function TrainingModelsPage() {
           </article>
         ))}
       </div>
-      {selected && (
+      {selected && !showPreview && (
         <div
           role="dialog"
           aria-modal="true"
