@@ -34,8 +34,8 @@ function value(input: unknown) {
 }
 
 function evaluationMetrics(
-  metrics: Record<string, number | string | null>,
-): Record<string, number | string | null> {
+  metrics: TrainingModel["metrics"],
+): TrainingModel["metrics"] {
   return Object.fromEntries(
     Object.entries(metrics).filter(
       ([key]) =>

@@ -61,6 +61,7 @@ const evaluation: TrainingModel = {
   is_active: false,
   deployment_error: null,
   checks: null,
+  requested_by: null,
 };
 
 export const trainingModelPreview: TrainingModel[] = [
