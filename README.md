@@ -85,3 +85,14 @@ feedback. Entering all criterion scores updates the total. Criterion scores
 must agree with the aggregate grade before the row can be included in the
 training CSV. The backend keeps previous CSV versions and original automated
 grades for review. SeaweedFS credentials are never sent to the frontend.
+
+## Train on demand
+
+Instructors can open **Trained models** and select **Train now** to train on the
+latest ready dataset without waiting for the nightly schedule. Each new request
+can retrain an unchanged dataset; a busy training GPU causes the workflow to skip
+the overlapping run. Failed requests retain their request ID for safe retries.
+The backend needs `TRAINING_STATE_MACHINE_ARN` and permission to start that
+workflow. Candidates appear after training and evaluation finish and require
+separate instructor review and deployment. Training never merges weights into
+the Hugging Face main branch.

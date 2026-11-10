@@ -27,6 +27,18 @@ export interface TrainingModel {
 export interface TrainingDeploymentResult {
   status: "queued" | "deployed";
 }
+
+export interface TrainingStartResult {
+  status: "accepted";
+  request_id: string;
+  execution_arn: string;
+}
+
+export const startTraining = (requestId: string) =>
+  apiJson<TrainingStartResult>("training-runs/start", {
+    method: "POST",
+    body: JSON.stringify({ request_id: requestId }),
+  });
 export const listTrainingModels = (signal?: AbortSignal) =>
   apiJson<TrainingModel[]>("training-runs", { signal });
 

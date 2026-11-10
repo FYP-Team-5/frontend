@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   deployTrainingModel,
   listTrainingModels,
+  startTraining,
   TrainingModel,
 } from "@/app/lib/trainingModelApi";
 import { trainingModelPreview } from "@/app/lib/trainingModelPreview";
 import { formatTestDate } from "@/app/lib/testDates";
 import Breadcrumbs from "@/app/components/Breadcrumbs";
+import { newRequestId } from "@/app/lib/requestId";
 
 const metrics = [
   ["invalid_output_rate", "Invalid output rate"],
@@ -51,6 +53,11 @@ export default function TrainingModelsPage() {
   const [selected, setSelected] = useState<TrainingModel | null>(null);
   const [busy, setBusy] = useState(false);
   const [refresh, setRefresh] = useState(0);
+  const [startingTraining, setStartingTraining] = useState(false);
+  const [trainingMessage, setTrainingMessage] = useState<string | null>(null);
+  const [trainingError, setTrainingError] = useState<string | null>(null);
+  const trainingRequest = useRef<string | null>(null);
+  const trainingInFlight = useRef(false);
   useEffect(() => {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
@@ -86,6 +93,29 @@ export default function TrainingModelsPage() {
   const deploying = models.some(
     (model) => model.status === "queued" || model.status === "deploying",
   );
+  async function trainNow() {
+    if (trainingInFlight.current) return;
+    trainingInFlight.current = true;
+    setStartingTraining(true);
+    setTrainingError(null);
+    setTrainingMessage(null);
+    try {
+      trainingRequest.current ??= newRequestId();
+      await startTraining(trainingRequest.current);
+      trainingRequest.current = null;
+      setTrainingMessage(
+        "Training requested for the latest ready dataset. The candidate will appear after training and evaluation finish. If another training run is in progress, this request will be skipped.",
+      );
+      setRefresh((x) => x + 1);
+    } catch (cause) {
+      setTrainingError(
+        cause instanceof Error ? cause.message : "Unable to request training.",
+      );
+    } finally {
+      trainingInFlight.current = false;
+      setStartingTraining(false);
+    }
+  }
   async function deploy() {
     if (!selected || showPreview) return;
     setBusy(true);
@@ -115,19 +145,39 @@ export default function TrainingModelsPage() {
         <h1 className="text-2xl font-semibold text-brand-dark">
           Trained models
         </h1>
-        <button
-          className="rounded border border-brand-dark px-4 py-2 text-sm"
-          onClick={() => setRefresh((x) => x + 1)}
-        >
-          Refresh
-        </button>
+        <div className="flex gap-3">
+          <button
+            className="rounded bg-brand-light px-4 py-2 text-sm text-white disabled:opacity-50"
+            disabled={startingTraining}
+            onClick={() => void trainNow()}
+          >
+            {startingTraining ? "Requesting training..." : "Train now"}
+          </button>
+          <button
+            className="rounded border border-brand-dark px-4 py-2 text-sm"
+            onClick={() => setRefresh((x) => x + 1)}
+          >
+            Refresh
+          </button>
+        </div>
       </div>
       <p className="mt-2 text-sm text-foreground/70">
-        Review nightly candidates against their base model on the same held-out
+        Start training on the latest ready dataset at any time, including a
+        dataset that was trained before. Review candidates against their base model on the same held-out
         questions. Deployment requires your confirmation and successful
         compatibility checks. Existing grading jobs keep their saved model;
         rubric candidates leave few-shot grading on the original model.
       </p>
+      {trainingMessage && (
+        <p role="status" className="mt-4 text-sm text-green-800">
+          {trainingMessage}
+        </p>
+      )}
+      {trainingError && (
+        <p role="alert" className="mt-4 text-sm text-red-700">
+          {trainingError}
+        </p>
+      )}
       {error && (
         <p role="alert" className="mt-4 text-sm text-red-700">
           {error}
