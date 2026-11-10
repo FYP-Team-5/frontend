@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { newRequestId } from "@/app/lib/requestId";
 import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/app/components/ToastProvider";
@@ -14,6 +13,7 @@ import {
   uploadDataset,
 } from "@/app/lib/trainingDatasetApi";
 import { formatTestDate } from "@/app/lib/testDates";
+import Breadcrumbs from "@/app/components/Breadcrumbs";
 
 /** Human-readable "course · test (N rows)" summaries from the version manifest. */
 function exportContributions(version: DatasetVersion): string[] {
@@ -157,12 +157,12 @@ export default function TrainingDatasetPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-10">
-      <Link
-        href="/instructor"
-        className="text-sm text-brand-light hover:underline"
-      >
-        &larr; Back to dashboard
-      </Link>
+      <Breadcrumbs
+        items={[
+          { label: "Dashboard", href: "/instructor" },
+          { label: "Training dataset" },
+        ]}
+      />
       <h1 className="mt-3 text-2xl font-semibold text-brand-dark">
         Training dataset
       </h1>

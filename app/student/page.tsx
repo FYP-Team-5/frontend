@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Course, GradingApiError, listCourses } from "../lib/gradingApi";
+import Breadcrumbs from "../components/Breadcrumbs";
 
 export default function StudentDashboard() {
   const [courses, setCourses] = useState<Course[]>([]);
@@ -20,6 +21,7 @@ export default function StudentDashboard() {
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-10">
+      <Breadcrumbs items={[{ label: "Courses" }]} />
       <h1 className="text-2xl font-semibold text-brand-dark">Courses</h1>
 
       {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
