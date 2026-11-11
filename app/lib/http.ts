@@ -15,14 +15,21 @@ export class ApiError extends Error {
 }
 
 async function errorMessage(response: Response): Promise<string> {
+  let detail: string | undefined;
   try {
     const body = await response.json();
-    return typeof body.detail === "string"
-      ? body.detail
-      : JSON.stringify(body.detail ?? body);
+    detail =
+      typeof body.detail === "string"
+        ? body.detail
+        : JSON.stringify(body.detail ?? body);
   } catch {
-    return response.statusText || "Request failed.";
+    // Body was missing or not JSON; fall through to the generic message.
   }
+  // FastAPI's default 404 body is {"detail":"Not Found"}, which is meaningless
+  // to users; it usually means the API server predates the requested route.
+  if (response.status === 404 && (!detail || detail === "Not Found"))
+    return "API endpoint not found (404). The backend service may be running an older build without this feature. Redeploy the backend.";
+  return detail || response.statusText || "Request failed.";
 }
 
 export async function apiFetch(

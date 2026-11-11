@@ -10,6 +10,7 @@ import {
 import { trainingModelPreview } from "@/app/lib/trainingModelPreview";
 import { formatTestDate } from "@/app/lib/testDates";
 import Breadcrumbs from "@/app/components/Breadcrumbs";
+import { useToast } from "@/app/components/ToastProvider";
 import { newRequestId } from "@/app/lib/requestId";
 
 const metrics = [
@@ -47,6 +48,7 @@ function evaluationMetrics(
 }
 
 export default function TrainingModelsPage() {
+  const toast = useToast();
   const [models, setModels] = useState<TrainingModel[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -54,10 +56,9 @@ export default function TrainingModelsPage() {
   const [busy, setBusy] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const [startingTraining, setStartingTraining] = useState(false);
-  const [trainingMessage, setTrainingMessage] = useState<string | null>(null);
-  const [trainingError, setTrainingError] = useState<string | null>(null);
   const trainingRequest = useRef<string | null>(null);
   const trainingInFlight = useRef(false);
+  const loadErrored = useRef(false);
   useEffect(() => {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
@@ -67,14 +68,21 @@ export default function TrainingModelsPage() {
         if (!controller.signal.aborted) {
           setModels(result);
           setError(null);
+          loadErrored.current = false;
         }
       } catch (cause) {
-        if (!controller.signal.aborted)
-          setError(
+        if (!controller.signal.aborted) {
+          const message =
             cause instanceof Error
               ? cause.message
-              : "Unable to load trained models.",
-          );
+              : "Unable to load trained models.";
+          setError(message);
+          // Poll runs every 10s: toast once per failure streak, not every poll.
+          if (!loadErrored.current) {
+            loadErrored.current = true;
+            toast(message, "error");
+          }
+        }
       } finally {
         if (!controller.signal.aborted) {
           setLoading(false);
@@ -97,19 +105,18 @@ export default function TrainingModelsPage() {
     if (trainingInFlight.current) return;
     trainingInFlight.current = true;
     setStartingTraining(true);
-    setTrainingError(null);
-    setTrainingMessage(null);
     try {
       trainingRequest.current ??= newRequestId();
       await startTraining(trainingRequest.current);
       trainingRequest.current = null;
-      setTrainingMessage(
+      toast(
         "Training requested for the latest ready dataset. The candidate will appear after training and evaluation finish. If another training run is in progress, this request will be skipped.",
       );
       setRefresh((x) => x + 1);
     } catch (cause) {
-      setTrainingError(
+      toast(
         cause instanceof Error ? cause.message : "Unable to request training.",
+        "error",
       );
     } finally {
       trainingInFlight.current = false;
@@ -122,13 +129,15 @@ export default function TrainingModelsPage() {
     try {
       await deployTrainingModel(selected);
       setSelected(null);
+      toast("Deployment requested. The candidate will deploy once all checks pass.");
       setRefresh((x) => x + 1);
     } catch (cause) {
-      setError(
+      const message =
         cause instanceof Error
           ? cause.message
-          : "Deployment could not be confirmed. Refresh to check its status.",
-      );
+          : "Deployment could not be confirmed. Refresh to check its status.";
+      setError(message);
+      toast(message, "error");
     } finally {
       setBusy(false);
     }
@@ -168,16 +177,6 @@ export default function TrainingModelsPage() {
         compatibility checks. Existing grading jobs keep their saved model;
         rubric candidates leave few-shot grading on the original model.
       </p>
-      {trainingMessage && (
-        <p role="status" className="mt-4 text-sm text-green-800">
-          {trainingMessage}
-        </p>
-      )}
-      {trainingError && (
-        <p role="alert" className="mt-4 text-sm text-red-700">
-          {trainingError}
-        </p>
-      )}
       {error && (
         <p role="alert" className="mt-4 text-sm text-red-700">
           {error}
