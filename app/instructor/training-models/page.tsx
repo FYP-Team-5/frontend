@@ -49,6 +49,21 @@ function evaluationMetrics(
   );
 }
 
+// A registered run only exists after training and evaluation finished, so the
+// grading badge is always positive; feedback adapters were added later and
+// older runs may not have one.
+function TrainedBadge({ trained }: { trained: boolean }) {
+  return (
+    <span
+      className={`ml-2 inline-flex items-center rounded-full px-2 py-0.5 align-middle text-xs font-medium ${
+        trained ? "bg-green-100 text-green-800" : "bg-gray-200 text-gray-600"
+      }`}
+    >
+      {trained ? "✓ Training succeeded" : "Not trained"}
+    </span>
+  );
+}
+
 export default function TrainingModelsPage() {
   const toast = useToast();
   const [models, setModels] = useState<TrainingModel[]>([]);
@@ -285,8 +300,7 @@ export default function TrainingModelsPage() {
                   </a>
                 )}
                 <p className="mt-1 break-all text-xs text-foreground/60">
-                  Dataset: {model.dataset_version} · Commit:{" "}
-                  {model.hf_revision.slice(0, 12)}
+                  Dataset: {model.dataset_version}
                 </p>
               </div>
               <button
@@ -305,7 +319,12 @@ export default function TrainingModelsPage() {
             </div>
             <h3 className="mt-4 text-sm font-semibold text-brand-dark">
               Grading model
+              <TrainedBadge trained />
             </h3>
+            <p className="mt-1 break-all text-xs text-foreground/60">
+              {model.hf_repo} · Branch: {model.hf_branch} · Commit:{" "}
+              {model.hf_revision.slice(0, 12)}
+            </p>
             <div className="mt-2 overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead>
@@ -331,7 +350,10 @@ export default function TrainingModelsPage() {
               </table>
             </div>
             <section className="mt-4 border-t border-gray-200 pt-4">
-              <h3 className="text-sm font-semibold text-brand-dark">Feedback model</h3>
+              <h3 className="text-sm font-semibold text-brand-dark">
+                Feedback model
+                <TrainedBadge trained={Boolean(model.feedback)} />
+              </h3>
               {model.feedback ? (
                 <>
                   <p className="mt-1 text-sm text-foreground/70">
@@ -348,12 +370,15 @@ export default function TrainingModelsPage() {
                     </a>
                   )}
                   <p className="mt-1 break-all text-xs text-foreground/60">
-                    Branch: {model.feedback.hf_branch} · Commit: {model.feedback.hf_revision.slice(0, 12)}
+                    {model.feedback.hf_repo} · Branch:{" "}
+                    {model.feedback.hf_branch} · Commit:{" "}
+                    {model.feedback.hf_revision.slice(0, 12)}
                   </p>
                 </>
               ) : (
                 <p className="mt-1 text-sm text-foreground/60">
-                  No feedback adapter was trained for this older run.
+                  No feedback adapter was trained for this older run. Deploying
+                  it keeps the currently active feedback model.
                 </p>
               )}
             </section>
