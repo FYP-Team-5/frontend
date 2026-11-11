@@ -98,13 +98,13 @@ export default function AttemptPage({
       });
       toast("Attempt submitted for grading.");
       setSubmitted(true);
-    } catch (err) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : "Could not confirm submission. Check your attempt history before trying again.";
-      setError(message);
-      toast(message, "error");
+    } catch {
+      // The request may still have reached the server, so fixed guidance is
+      // safer than echoing a raw error; failures are already in the toast.
+      toast(
+        "Could not confirm submission. Check your attempt history before trying again.",
+        "error",
+      );
     } finally {
       setBusy(false);
     }

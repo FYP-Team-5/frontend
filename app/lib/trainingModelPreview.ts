@@ -56,6 +56,13 @@ const evaluation: TrainingModel = {
   baseline_metrics: baseline,
   configuration,
   dataset_stats: { source_rows: 3778, training_rows: 3778 },
+  feedback: {
+    hf_repo: "SmuFypTeam5/feedback",
+    hf_branch: "candidate-v3",
+    hf_revision: "9f6b2d8c4a1e7f305b6c9d2a",
+    configuration: { LORA_R: 16, LORA_ALPHA: 32, LEARNING_RATE: 0.0001 },
+    dataset_stats: { source_rows: 3778 },
+  },
   status: "candidate",
   revision: 0,
   is_active: false,

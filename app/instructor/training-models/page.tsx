@@ -4,8 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import {
   deployTrainingModel,
   listTrainingModels,
+  listTrainingRunsInProgress,
   startTraining,
   TrainingModel,
+  TrainingRunInProgress,
 } from "@/app/lib/trainingModelApi";
 import { trainingModelPreview } from "@/app/lib/trainingModelPreview";
 import { formatTestDate } from "@/app/lib/testDates";
@@ -59,16 +61,29 @@ export default function TrainingModelsPage() {
   const trainingRequest = useRef<string | null>(null);
   const trainingInFlight = useRef(false);
   const loadErrored = useRef(false);
+  const [inProgress, setInProgress] = useState<TrainingRunInProgress[]>([]);
+  // Set when the Refresh button is clicked; the next load result answers it
+  // with a toast instead of the silent 10s poll.
+  const manualRefresh = useRef(false);
   useEffect(() => {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     async function load() {
       try {
-        const result = await listTrainingModels(controller.signal);
+        const [result, runs] = await Promise.all([
+          listTrainingModels(controller.signal),
+          // Best-effort AWS workflow view; never fail the candidate list for it.
+          listTrainingRunsInProgress(controller.signal).catch(() => []),
+        ]);
         if (!controller.signal.aborted) {
           setModels(result);
+          setInProgress(runs);
           setError(null);
           loadErrored.current = false;
+          if (manualRefresh.current) {
+            manualRefresh.current = false;
+            toast("Refreshed trained models");
+          }
         }
       } catch (cause) {
         if (!controller.signal.aborted) {
@@ -77,9 +92,11 @@ export default function TrainingModelsPage() {
               ? cause.message
               : "Unable to load trained models.";
           setError(message);
-          // Poll runs every 10s: toast once per failure streak, not every poll.
-          if (!loadErrored.current) {
+          // Poll runs every 10s: toast once per failure streak, or when the
+          // failure answers a manual Refresh click.
+          if (!loadErrored.current || manualRefresh.current) {
             loadErrored.current = true;
+            manualRefresh.current = false;
             toast(message, "error");
           }
         }
@@ -96,7 +113,8 @@ export default function TrainingModelsPage() {
       clearTimeout(timer);
     };
   }, [refresh]);
-  const showPreview = !loading && models.length === 0;
+  const showPreview =
+    !loading && models.length === 0 && inProgress.length === 0;
   const displayedModels = showPreview ? trainingModelPreview : models;
   const deploying = models.some(
     (model) => model.status === "queued" || model.status === "deploying",
@@ -110,7 +128,7 @@ export default function TrainingModelsPage() {
       await startTraining(trainingRequest.current);
       trainingRequest.current = null;
       toast(
-        "Training requested for the latest ready dataset. The candidate will appear after training and evaluation finish. If another training run is in progress, this request will be skipped.",
+        "Training started. This page now shows the run entry; its candidate appears after training and evaluation finish. If another run holds the GPU lock, this request is skipped.",
       );
       setRefresh((x) => x + 1);
     } catch (cause) {
@@ -164,7 +182,10 @@ export default function TrainingModelsPage() {
           </button>
           <button
             className="rounded border border-brand-dark px-4 py-2 text-sm"
-            onClick={() => setRefresh((x) => x + 1)}
+            onClick={() => {
+              manualRefresh.current = true;
+              setRefresh((x) => x + 1);
+            }}
           >
             Refresh
           </button>
@@ -172,8 +193,9 @@ export default function TrainingModelsPage() {
       </div>
       <p className="mt-2 text-sm text-foreground/70">
         Start training on the latest ready dataset at any time, including a
-        dataset that was trained before. Review candidates against their base model on the same held-out
-        questions. Deployment requires your confirmation and successful
+        dataset that was trained before. Each run trains grading first, then
+        feedback, and publishes both adapters together. Grading metrics compare
+        the candidate against its base model. Deployment requires your confirmation and successful
         compatibility checks. Existing grading jobs keep their saved model;
         rubric candidates leave few-shot grading on the original model.
       </p>
@@ -182,6 +204,45 @@ export default function TrainingModelsPage() {
           {error}
         </p>
       )}
+      {inProgress.map((run) => (
+        <article
+          key={run.run_id}
+          role="status"
+          className={`mt-4 rounded-lg border p-4 ${
+            run.status === "training"
+              ? "border-amber-300 bg-amber-50"
+              : "border-red-300 bg-red-50"
+          }`}
+        >
+          <h2
+            className={`text-sm font-semibold ${
+              run.status === "training" ? "text-amber-900" : "text-red-800"
+            }`}
+          >
+            {run.status === "training"
+              ? "Training run in progress"
+              : "Training run failed"}{" "}
+            · started {formatTestDate(run.started_at)}
+          </h2>
+          <p
+            className={`mt-1 text-sm ${
+              run.status === "training" ? "text-amber-900" : "text-red-700"
+            }`}
+          >
+            {run.status === "training"
+              ? "Grading training and evaluation run first, followed by feedback training. Both models share this run and dataset. The candidate appears once both adapters are published."
+              : `The workflow ended without registering a candidate${
+                  run.stopped_at ? ` (stopped ${formatTestDate(run.stopped_at)})` : ""
+                }. Check the training workflow logs, then press Train now to retry.`}
+          </p>
+          <p className="mt-1 break-all text-xs text-foreground/60">
+            {run.execution_name.startsWith("manual-")
+              ? "Requested via Train now"
+              : "Nightly schedule"}{" "}
+            · Run: {run.run_id}
+          </p>
+        </article>
+      ))}
       {loading && (
         <p role="status" className="mt-5">
           Loading trained models...
@@ -220,7 +281,7 @@ export default function TrainingModelsPage() {
                     target="_blank"
                     rel="noreferrer"
                   >
-                    View pinned Hugging Face version
+                    View grading model on Hugging Face
                   </a>
                 )}
                 <p className="mt-1 break-all text-xs text-foreground/60">
@@ -239,14 +300,21 @@ export default function TrainingModelsPage() {
                     ? "Deployed"
                     : model.status === "failed"
                       ? "Retry deployment"
-                      : "Deploy this version"}
+                      : model.feedback ? "Deploy both models" : "Deploy this version"}
               </button>
             </div>
-            <div className="mt-4 overflow-x-auto">
+            <h3 className="mt-4 text-sm font-semibold text-brand-dark">
+              Grading model
+            </h3>
+            <div className="mt-2 overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead>
                   <tr className="border-b">
-                    <th className="py-2">Held-out metric</th>
+                    <th className="py-2">
+                      {model.configuration.held_out_evaluation === false
+                        ? "Training-data metric"
+                        : "Held-out metric"}
+                    </th>
                     <th>Base model</th>
                     <th>Candidate</th>
                   </tr>
@@ -262,6 +330,33 @@ export default function TrainingModelsPage() {
                 </tbody>
               </table>
             </div>
+            <section className="mt-4 border-t border-gray-200 pt-4">
+              <h3 className="text-sm font-semibold text-brand-dark">Feedback model</h3>
+              {model.feedback ? (
+                <>
+                  <p className="mt-1 text-sm text-foreground/70">
+                    Trained after grading on the same dataset. No evaluation metrics.
+                  </p>
+                  {!showPreview && (
+                    <a
+                      className="mt-2 inline-block text-sm text-brand-light underline"
+                      href={`https://huggingface.co/${model.feedback.hf_repo}/tree/${model.feedback.hf_revision}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      View feedback model on Hugging Face
+                    </a>
+                  )}
+                  <p className="mt-1 break-all text-xs text-foreground/60">
+                    Branch: {model.feedback.hf_branch} · Commit: {model.feedback.hf_revision.slice(0, 12)}
+                  </p>
+                </>
+              ) : (
+                <p className="mt-1 text-sm text-foreground/60">
+                  No feedback adapter was trained for this older run.
+                </p>
+              )}
+            </section>
             {model.deployment_error && (
               <p className="mt-3 text-sm text-red-700">
                 {model.deployment_error}
@@ -271,7 +366,7 @@ export default function TrainingModelsPage() {
               <p className="mt-3 text-sm text-green-800">
                 Compatibility checks:{" "}
                 {Object.entries(model.checks)
-                  .filter(([key]) => key !== "pinned_hf_revision")
+                  .filter(([key]) => !key.startsWith("pinned_"))
                   .map(
                     ([key, result]) => `${key.replaceAll("_", " ")}: ${result}`,
                   )
@@ -289,6 +384,7 @@ export default function TrainingModelsPage() {
                     metrics: evaluationMetrics(model.metrics),
                     baseline_metrics: evaluationMetrics(model.baseline_metrics),
                     dataset_stats: model.dataset_stats,
+                    ...(model.feedback ? { feedback: model.feedback } : {}),
                   },
                   null,
                   2,
@@ -311,8 +407,8 @@ export default function TrainingModelsPage() {
             </h2>
             <p className="mt-3 text-sm">
               The server will download commit{" "}
-              {selected.hf_revision.slice(0, 12)}, verify the adapter and test
-              its grading responses. New rubric submissions switch only after
+              {selected.hf_revision.slice(0, 12)}{selected.feedback ? ` and feedback commit ${selected.feedback.hf_revision.slice(0, 12)}` : ""}, verify the adapters and test
+              their responses. New rubric submissions switch only after
               all checks pass. A failed check keeps the current model active.
             </p>
             <div className="mt-5 flex justify-end gap-3">

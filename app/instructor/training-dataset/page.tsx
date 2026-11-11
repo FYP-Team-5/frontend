@@ -194,13 +194,13 @@ export default function TrainingDatasetPage() {
       >
         <h2 className="text-lg font-semibold text-brand-dark">Upload CSV</h2>
         <p className="text-sm text-foreground/70">
-          Use the columns from training_data_moh_eng_rubrics.csv. A new upload
-          replaces the seed examples and retains automatically collected test
-          rows. Earlier versions remain available.
+          Include feedback text for each answer. Older CSV files without feedback
+          are also accepted. A new upload replaces the seed examples and retains
+          automatically collected test rows. Earlier versions remain available.
         </p>
         <p className="break-words font-mono text-xs text-foreground/60">
           id, question, desired_answer, student_answer, criteria[],
-          criteria_score[], criteria_max_score[], student_score
+          criteria_score[], criteria_max_score[], student_score, feedback
         </p>
         <label className="block text-sm font-medium">
           Dataset CSV

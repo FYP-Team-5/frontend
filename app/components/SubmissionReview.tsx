@@ -73,6 +73,9 @@ export default function SubmissionReview({
   // Set when the Reload button is clicked; the next completed load answers
   // it with a success/failure toast instead of the silent background poll.
   const manualReload = useRef(false);
+  // Last attempt status seen by the poller, so a grading run that ends in
+  // failure is announced once by toast instead of only appearing inline.
+  const previousStatus = useRef<string | null>(null);
   const [drafts, setDrafts] = useState<Drafts>({});
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -145,6 +148,13 @@ export default function SubmissionReview({
           controller.signal,
         );
         if (!active) return;
+        const previous = previousStatus.current;
+        previousStatus.current = data.attempt.status;
+        if (previous === "grading" && data.attempt.status === "failed")
+          toast(
+            "Grading failed. Your submitted answers are saved; retry grading when ready.",
+            "error",
+          );
         setResult(data);
         setDrafts(draftsFor(data));
         setError(null);
@@ -198,10 +208,10 @@ export default function SubmissionReview({
       toast("Grading re-queued using your saved answers.");
       setReload((value) => value + 1);
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Unable to retry grading.";
-      setError(message);
-      toast(message, "error");
+      toast(
+        err instanceof Error ? err.message : "Unable to retry grading.",
+        "error",
+      );
     } finally {
       setBusy(false);
     }
@@ -266,10 +276,10 @@ export default function SubmissionReview({
       setMessage("Scores and feedback saved.");
       toast("Scores and feedback saved.");
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Unable to save grades.";
-      setError(message);
-      toast(message, "error");
+      toast(
+        err instanceof Error ? err.message : "Unable to save grades.",
+        "error",
+      );
       if (
         err instanceof GradingApiError &&
         err.status === 409 &&
@@ -365,9 +375,14 @@ export default function SubmissionReview({
                   completed grades are saved.
                 </p>
                 {result.attempt.error && (
-                  <p className="mt-2 text-xs text-foreground/60">
-                    {result.attempt.error}
-                  </p>
+                  <details className="mt-2">
+                    <summary className="cursor-pointer text-xs text-foreground/60">
+                      Technical details
+                    </summary>
+                    <p className="mt-1 break-words text-xs text-foreground/60">
+                      {result.attempt.error}
+                    </p>
+                  </details>
                 )}
                 {!instructor && (
                   <button
