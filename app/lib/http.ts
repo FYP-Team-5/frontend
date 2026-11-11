@@ -44,11 +44,24 @@ export async function apiFetch(
   if (typeof options.body === "string" && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
-  const response = await fetch(`${API_URL}/api/v1/${path}`, {
-    ...options,
-    headers,
-    cache: "no-store",
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}/api/v1/${path}`, {
+      ...options,
+      headers,
+      cache: "no-store",
+    });
+  } catch (cause) {
+    if (
+      options.signal?.aborted ||
+      (cause instanceof Error && cause.name === "AbortError")
+    ) {
+      throw cause;
+    }
+    throw new ApiError(
+      `Unable to connect to the backend at ${API_URL}. Check that the backend is reachable and allows requests from this website, then retry.`,
+    );
+  }
   if (!response.ok)
     throw new ApiError(await errorMessage(response), response.status);
   return response;
