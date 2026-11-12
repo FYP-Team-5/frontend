@@ -82,17 +82,13 @@ export default function TrainingModelsPage() {
   const manualRefresh = useRef(false);
   useEffect(() => {
     const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
-    async function load() {
+    let modelsTimer: ReturnType<typeof setTimeout>;
+    let runsTimer: ReturnType<typeof setTimeout>;
+    async function loadModels() {
       try {
-        const [result, runs] = await Promise.all([
-          listTrainingModels(controller.signal),
-          // Best-effort AWS workflow view; never fail the candidate list for it.
-          listTrainingRunsInProgress(controller.signal).catch(() => []),
-        ]);
+        const result = await listTrainingModels(controller.signal);
         if (!controller.signal.aborted) {
           setModels(result);
-          setInProgress(runs);
           setError(null);
           loadErrored.current = false;
           if (manualRefresh.current) {
@@ -118,18 +114,32 @@ export default function TrainingModelsPage() {
       } finally {
         if (!controller.signal.aborted) {
           setLoading(false);
-          timer = setTimeout(load, 10000);
+          modelsTimer = setTimeout(loadModels, 10000);
         }
       }
     }
-    void load();
+    // History remains available even while the workflow status request is slow.
+    async function loadRuns() {
+      try {
+        const runs = await listTrainingRunsInProgress(controller.signal);
+        if (!controller.signal.aborted) setInProgress(runs);
+      } catch {
+        // Keep the last known training card during a temporary status outage.
+      } finally {
+        if (!controller.signal.aborted) {
+          runsTimer = setTimeout(loadRuns, 10000);
+        }
+      }
+    }
+    void loadModels();
+    void loadRuns();
     return () => {
       controller.abort();
-      clearTimeout(timer);
+      clearTimeout(modelsTimer);
+      clearTimeout(runsTimer);
     };
-  }, [refresh]);
-  const showPreview =
-    !loading && models.length === 0 && inProgress.length === 0;
+  }, [refresh, toast]);
+  const showPreview = !loading && models.length === 0;
   const displayedModels = showPreview ? trainingModelPreview : models;
   const deploying = models.some(
     (model) => model.status === "queued" || model.status === "deploying",
@@ -210,9 +220,11 @@ export default function TrainingModelsPage() {
         Start training on the latest ready dataset at any time, including a
         dataset that was trained before. Each run trains grading first, then
         feedback, and publishes both adapters together. Grading metrics compare
-        the candidate against its base model. Deployment requires your confirmation and successful
-        compatibility checks. Existing grading jobs keep their saved model;
-        rubric candidates leave few-shot grading on the original model.
+        the candidate against its base model. Past evaluations remain available
+        while training runs. Eligible candidates can deploy automatically, or
+        you can request deployment after reviewing the results. Compatibility
+        checks must pass before activation. Existing grading jobs keep their
+        saved model; rubric candidates leave few-shot grading on the original model.
       </p>
       {error && (
         <p role="alert" className="mt-4 text-sm text-red-700">
