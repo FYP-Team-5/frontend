@@ -64,6 +64,10 @@ function TrainedBadge({ trained }: { trained: boolean }) {
   );
 }
 
+function isDeploying(model: TrainingModel) {
+  return model.status === "queued" || model.status === "deploying";
+}
+
 export default function TrainingModelsPage() {
   const toast = useToast();
   const [models, setModels] = useState<TrainingModel[]>([]);
@@ -141,9 +145,7 @@ export default function TrainingModelsPage() {
   }, [refresh, toast]);
   const showPreview = !loading && models.length === 0;
   const displayedModels = showPreview ? trainingModelPreview : models;
-  const deploying = models.some(
-    (model) => model.status === "queued" || model.status === "deploying",
-  );
+  const deploying = models.some(isDeploying);
   async function trainNow() {
     if (trainingInFlight.current) return;
     trainingInFlight.current = true;
@@ -318,11 +320,17 @@ export default function TrainingModelsPage() {
               <button
                 disabled={busy || deploying || model.is_active || showPreview}
                 onClick={() => setSelected(model)}
-                className="rounded bg-brand-light px-4 py-2 text-sm text-white disabled:opacity-50"
+                className={`rounded px-4 py-2 text-sm text-white ${
+                  isDeploying(model)
+                    ? "bg-amber-500"
+                    : "bg-brand-light disabled:opacity-50"
+                }`}
               >
                 {showPreview
                   ? "Deployment unavailable"
-                  : model.is_active
+                  : isDeploying(model)
+                    ? "Deploying..."
+                    : model.is_active
                     ? "Deployed"
                     : model.status === "failed"
                       ? "Retry deployment"

@@ -15,16 +15,13 @@ import {
 import { formatTestDate } from "@/app/lib/testDates";
 import Breadcrumbs from "@/app/components/Breadcrumbs";
 
-/** Human-readable "course · test (N rows)" summaries from the version manifest. */
+/** Human-readable "course · test" summaries from the version manifest. */
 function exportContributions(version: DatasetVersion): string[] {
-  const counts = new Map<string, number>();
+  const labels = new Set<string>();
   for (const entry of version.source_manifest ?? []) {
-    const label = `${entry.course_code} · ${entry.test_name}`;
-    counts.set(label, (counts.get(label) ?? 0) + 1);
+    labels.add(`${entry.course_code} · ${entry.test_name}`);
   }
-  return [...counts].map(
-    ([label, count]) => `${label} (${count} row${count === 1 ? "" : "s"})`,
-  );
+  return [...labels];
 }
 
 export default function TrainingDatasetPage() {
