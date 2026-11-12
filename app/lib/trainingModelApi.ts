@@ -10,6 +10,18 @@ export interface FeedbackTrainingModel {
   dataset_stats: Record<string, unknown>;
 }
 
+export type TrainedModelKind = "grading" | "feedback";
+
+// Grading and feedback adapters deploy independently, each with its own state.
+export interface ModelDeployment {
+  status: "candidate" | "queued" | "deploying" | "deployed" | "failed";
+  revision: number;
+  is_active: boolean;
+  error: string | null;
+  checks: Record<string, unknown> | null;
+  requested_by: string | null;
+}
+
 export interface TrainingModel {
   run_id: string;
   completed_at: string;
@@ -25,12 +37,8 @@ export interface TrainingModel {
   configuration: Record<string, unknown>;
   dataset_stats: Record<string, unknown>;
   feedback?: FeedbackTrainingModel | null;
-  status: "candidate" | "queued" | "deploying" | "deployed" | "failed";
-  revision: number;
-  is_active: boolean;
-  deployment_error: string | null;
-  checks: Record<string, unknown> | null;
-  requested_by: string | null;
+  // feedback is null for older grading-only runs.
+  deployments: { grading: ModelDeployment; feedback: ModelDeployment | null };
 }
 
 export interface TrainingDeploymentResult {
@@ -62,8 +70,12 @@ export const listTrainingModels = (signal?: AbortSignal) =>
 export const listTrainingRunsInProgress = (signal?: AbortSignal) =>
   apiJson<TrainingRunInProgress[]>("training-runs/in-progress", { signal });
 
-export const deployTrainingModel = (model: TrainingModel) =>
-  apiJson<TrainingDeploymentResult>(`training-runs/${encodeURIComponent(model.run_id)}/deploy`, {
+export const deployTrainingModel = (
+  runId: string,
+  kind: TrainedModelKind,
+  deployment: ModelDeployment,
+) =>
+  apiJson<TrainingDeploymentResult>(`training-runs/${encodeURIComponent(runId)}/deploy`, {
     method: "POST",
-    body: JSON.stringify({ revision: model.revision }),
+    body: JSON.stringify({ model: kind, revision: deployment.revision }),
   });

@@ -5,7 +5,9 @@ import {
   deployTrainingModel,
   listTrainingModels,
   listTrainingRunsInProgress,
+  ModelDeployment,
   startTraining,
+  TrainedModelKind,
   TrainingModel,
   TrainingRunInProgress,
 } from "@/app/lib/trainingModelApi";
@@ -64,8 +66,75 @@ function TrainedBadge({ trained }: { trained: boolean }) {
   );
 }
 
-function isDeploying(model: TrainingModel) {
-  return model.status === "queued" || model.status === "deploying";
+function isDeploying(deployment: ModelDeployment | null) {
+  return deployment?.status === "queued" || deployment?.status === "deploying";
+}
+
+function deploymentStatus(deployment: ModelDeployment) {
+  if (deployment.is_active) return "Active for new rubric submissions";
+  return {
+    candidate: "Not deployed",
+    queued: "Deployment queued",
+    deploying: "Deploying",
+    deployed: "Previously deployed",
+    failed: "Deployment failed",
+  }[deployment.status];
+}
+
+// Grading and feedback deploy separately; each card section owns one model.
+function DeployButton({
+  kind,
+  deployment,
+  disabled,
+  preview,
+  onClick,
+}: {
+  kind: TrainedModelKind;
+  deployment: ModelDeployment;
+  disabled: boolean;
+  preview: boolean;
+  onClick: () => void;
+}) {
+  const inProgress = isDeploying(deployment);
+  return (
+    <button
+      disabled={disabled || inProgress || deployment.is_active || preview}
+      onClick={onClick}
+      className={`rounded px-4 py-2 text-sm text-white ${
+        inProgress ? "bg-amber-500" : "bg-brand-light disabled:opacity-50"
+      }`}
+    >
+      {preview
+        ? "Deployment unavailable"
+        : inProgress
+          ? "Deploying..."
+          : deployment.is_active
+            ? "Deployed"
+            : deployment.status === "failed"
+              ? "Retry deployment"
+              : `Deploy ${kind} model`}
+    </button>
+  );
+}
+
+function DeploymentDetails({ deployment }: { deployment: ModelDeployment }) {
+  // Failed deployments save no checks; show the line only when some passed.
+  const checks = Object.entries(deployment.checks ?? {})
+    .filter(([key]) => !key.startsWith("pinned_"))
+    .map(([key, result]) => `${key.replaceAll("_", " ")}: ${result}`);
+  return (
+    <>
+      <p className="mt-1 text-sm">{deploymentStatus(deployment)}</p>
+      {deployment.error && (
+        <p className="mt-1 text-sm text-red-700">{deployment.error}</p>
+      )}
+      {checks.length > 0 && (
+        <p className="mt-1 text-sm text-green-800">
+          Compatibility checks: {checks.join(" · ")}
+        </p>
+      )}
+    </>
+  );
 }
 
 export default function TrainingModelsPage() {
@@ -73,7 +142,10 @@ export default function TrainingModelsPage() {
   const [models, setModels] = useState<TrainingModel[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<TrainingModel | null>(null);
+  const [selected, setSelected] = useState<{
+    model: TrainingModel;
+    kind: TrainedModelKind;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const [startingTraining, setStartingTraining] = useState(false);
@@ -145,7 +217,11 @@ export default function TrainingModelsPage() {
   }, [refresh, toast]);
   const showPreview = !loading && models.length === 0;
   const displayedModels = showPreview ? trainingModelPreview : models;
-  const deploying = models.some(isDeploying);
+  // Only one deployment per model can be pending; the other model stays free.
+  const deploying: Record<TrainedModelKind, boolean> = {
+    grading: models.some((model) => isDeploying(model.deployments.grading)),
+    feedback: models.some((model) => isDeploying(model.deployments.feedback)),
+  };
   async function trainNow() {
     if (trainingInFlight.current) return;
     trainingInFlight.current = true;
@@ -169,12 +245,15 @@ export default function TrainingModelsPage() {
     }
   }
   async function deploy() {
-    if (!selected || showPreview) return;
+    const deployment = selected?.model.deployments[selected.kind];
+    if (!selected || !deployment || showPreview) return;
     setBusy(true);
     try {
-      await deployTrainingModel(selected);
+      await deployTrainingModel(selected.model.run_id, selected.kind, deployment);
       setSelected(null);
-      toast("Deployment requested. The candidate will deploy once all checks pass.");
+      toast(
+        `${selected.kind === "grading" ? "Grading" : "Feedback"} deployment requested. It switches once its checks pass.`,
+      );
       setRefresh((x) => x + 1);
     } catch (cause) {
       const message =
@@ -223,9 +302,10 @@ export default function TrainingModelsPage() {
         dataset that was trained before. Each run trains grading first, then
         feedback, and publishes both adapters together. Grading metrics compare
         the candidate against its base model. Past evaluations remain available
-        while training runs. Eligible candidates can deploy automatically, or
-        you can request deployment after reviewing the results. Compatibility
-        checks must pass before activation. Existing grading jobs keep their
+        while training runs. Eligible candidates can deploy both models
+        automatically, or you can deploy the grading and feedback models
+        separately after reviewing the results. Each model switches only after
+        its own compatibility checks pass. Existing grading jobs keep their
         saved model; rubric candidates leave few-shot grading on the original model.
       </p>
       {error && (
@@ -293,11 +373,6 @@ export default function TrainingModelsPage() {
                       : "Training candidate"}{" "}
                   · {formatTestDate(model.completed_at)}
                 </h2>
-                <p className="mt-1 text-sm">
-                  {model.is_active
-                    ? "Active for new rubric submissions"
-                    : model.status}
-                </p>
                 {showPreview ? (
                   <p className="mt-2 text-sm text-foreground/60">
                     Deployment unavailable until this evaluation is registered
@@ -317,30 +392,23 @@ export default function TrainingModelsPage() {
                   Dataset: {model.dataset_version}
                 </p>
               </div>
-              <button
-                disabled={busy || deploying || model.is_active || showPreview}
-                onClick={() => setSelected(model)}
-                className={`rounded px-4 py-2 text-sm text-white ${
-                  isDeploying(model)
-                    ? "bg-amber-500"
-                    : "bg-brand-light disabled:opacity-50"
-                }`}
-              >
-                {showPreview
-                  ? "Deployment unavailable"
-                  : isDeploying(model)
-                    ? "Deploying..."
-                    : model.is_active
-                    ? "Deployed"
-                    : model.status === "failed"
-                      ? "Retry deployment"
-                      : model.feedback ? "Deploy both models" : "Deploy this version"}
-              </button>
             </div>
-            <h3 className="mt-4 text-sm font-semibold text-brand-dark">
-              Grading model
-              <TrainedBadge trained />
-            </h3>
+            <div className="mt-4 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-brand-dark">
+                  Grading model
+                  <TrainedBadge trained />
+                </h3>
+                <DeploymentDetails deployment={model.deployments.grading} />
+              </div>
+              <DeployButton
+                kind="grading"
+                deployment={model.deployments.grading}
+                disabled={busy || deploying.grading}
+                preview={showPreview}
+                onClick={() => setSelected({ model, kind: "grading" })}
+              />
+            </div>
             <p className="mt-1 break-all text-xs text-foreground/60">
               {model.hf_repo} · Branch: {model.hf_branch} · Commit:{" "}
               {model.hf_revision.slice(0, 12)}
@@ -370,10 +438,26 @@ export default function TrainingModelsPage() {
               </table>
             </div>
             <section className="mt-4 border-t border-gray-200 pt-4">
-              <h3 className="text-sm font-semibold text-brand-dark">
-                Feedback model
-                <TrainedBadge trained={Boolean(model.feedback)} />
-              </h3>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-brand-dark">
+                    Feedback model
+                    <TrainedBadge trained={Boolean(model.feedback)} />
+                  </h3>
+                  {model.feedback && model.deployments.feedback && (
+                    <DeploymentDetails deployment={model.deployments.feedback} />
+                  )}
+                </div>
+                {model.feedback && model.deployments.feedback && (
+                  <DeployButton
+                    kind="feedback"
+                    deployment={model.deployments.feedback}
+                    disabled={busy || deploying.feedback}
+                    preview={showPreview}
+                    onClick={() => setSelected({ model, kind: "feedback" })}
+                  />
+                )}
+              </div>
               {model.feedback ? (
                 <>
                   <p className="mt-1 text-sm text-foreground/70">
@@ -397,27 +481,12 @@ export default function TrainingModelsPage() {
                 </>
               ) : (
                 <p className="mt-1 text-sm text-foreground/60">
-                  No feedback adapter was trained for this older run. Deploying
-                  it keeps the currently active feedback model.
+                  No feedback adapter was trained for this older run.
+                  Deploying its grading model leaves the active feedback model
+                  unchanged.
                 </p>
               )}
             </section>
-            {model.deployment_error && (
-              <p className="mt-3 text-sm text-red-700">
-                {model.deployment_error}
-              </p>
-            )}
-            {model.checks && (
-              <p className="mt-3 text-sm text-green-800">
-                Compatibility checks:{" "}
-                {Object.entries(model.checks)
-                  .filter(([key]) => !key.startsWith("pinned_"))
-                  .map(
-                    ([key, result]) => `${key.replaceAll("_", " ")}: ${result}`,
-                  )
-                  .join(" · ")}
-              </p>
-            )}
             <details className="mt-3 text-sm">
               <summary className="cursor-pointer">
                 Training configuration and full evaluation
@@ -448,13 +517,19 @@ export default function TrainingModelsPage() {
         >
           <div className="max-w-lg rounded-lg bg-white p-6 shadow-lg">
             <h2 id="deploy-title" className="text-lg font-semibold">
-              Deploy this candidate?
+              Deploy this {selected.kind} model?
             </h2>
             <p className="mt-3 text-sm">
-              The server will download commit{" "}
-              {selected.hf_revision.slice(0, 12)}{selected.feedback ? ` and feedback commit ${selected.feedback.hf_revision.slice(0, 12)}` : ""}, verify the adapters and test
-              their responses. New rubric submissions switch only after
-              all checks pass. A failed check keeps the current model active.
+              The server will download {selected.kind} commit{" "}
+              {(selected.kind === "grading"
+                ? selected.model.hf_revision
+                : (selected.model.feedback?.hf_revision ?? "")
+              ).slice(0, 12)}
+              , verify the adapter and test its responses. New rubric
+              submissions switch to it only after all checks pass, and the
+              active {selected.kind === "grading" ? "feedback" : "grading"}{" "}
+              model stays unchanged. A failed check keeps the current{" "}
+              {selected.kind} model active.
             </p>
             <div className="mt-5 flex justify-end gap-3">
               <button

@@ -1,4 +1,4 @@
-import type { TrainingModel } from "./trainingModelApi";
+import type { ModelDeployment, TrainingModel } from "./trainingModelApi";
 
 // Page-only records used while the training service has no completed runs.
 // Identifiers mirror the real workflow: run ids are 32-hex, adapters are
@@ -28,6 +28,15 @@ const configuration = {
   LEARNING_RATE: 0.00005,
   NUM_EPOCHS: 3,
   MAX_SEQ_LENGTH: 4096,
+};
+
+const notDeployed: ModelDeployment = {
+  status: "candidate",
+  revision: 0,
+  is_active: false,
+  error: null,
+  checks: null,
+  requested_by: null,
 };
 
 // preview-earlier keeps feedback: null to exercise the "Not trained" state
@@ -71,12 +80,7 @@ export const trainingModelPreview: TrainingModel[] = [
       configuration: { LORA_R: 16, LORA_ALPHA: 32, LEARNING_RATE: 0.0001 },
       dataset_stats: { source_rows: 3778 },
     },
-    status: "candidate",
-    revision: 0,
-    is_active: false,
-    deployment_error: null,
-    checks: null,
-    requested_by: null,
+    deployments: { grading: notDeployed, feedback: notDeployed },
   },
   {
     run_id: "7c2e9b41d0a84f63b5e1c9d207af48e6",
@@ -110,12 +114,7 @@ export const trainingModelPreview: TrainingModel[] = [
     configuration,
     dataset_stats: { source_rows: 3778, training_rows: 3778 },
     feedback: null,
-    status: "candidate",
-    revision: 0,
-    is_active: false,
-    deployment_error: null,
-    checks: null,
-    requested_by: null,
+    deployments: { grading: notDeployed, feedback: null },
   },
   {
     run_id: "e8b64f0c9a12d735c4f06b915d2ea873",
@@ -155,12 +154,25 @@ export const trainingModelPreview: TrainingModel[] = [
       configuration: { LORA_R: 16, LORA_ALPHA: 32, LEARNING_RATE: 0.0001 },
       dataset_stats: { source_rows: 3778 },
     },
-    status: "failed",
-    revision: 0,
-    is_active: false,
-    deployment_error:
-      "Grading compatibility checks failed; the active model was retained.",
-    checks: null,
-    requested_by: null,
+    // Feedback passed its checks; the failed grading check kept the active one.
+    deployments: {
+      grading: {
+        status: "failed",
+        revision: 1,
+        is_active: false,
+        error:
+          "Grading compatibility checks failed; the active model was retained.",
+        checks: null,
+        requested_by: null,
+      },
+      feedback: {
+        status: "deployed",
+        revision: 1,
+        is_active: false,
+        error: null,
+        checks: { adapter: "passed", feedback_response: "passed" },
+        requested_by: null,
+      },
+    },
   },
 ];
